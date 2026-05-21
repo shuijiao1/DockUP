@@ -1,12 +1,12 @@
 # DockUP
 
-![Docker](https://img.shields.io/badge/Docker-Auto%20Update-2496ED?logo=docker&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Update%20Notifier-2496ED?logo=docker&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 [中文](README.md) | **English**
 
-**DockUP is a tiny automatic updater for Docker containers.**
+**DockUP is a tiny Docker update notifier with Telegram approval buttons.**
 
 > By default, DockUP checks all running containers every 24 hours. If a newer image is available, it sends a separate Telegram message with Update and Ignore buttons for each container.
 
@@ -18,12 +18,12 @@
 - **Checks every 24 hours by default**
 - **Telegram button confirmation only**
 - **Recreates containers with their original configuration**
-- **Attempts rollback if the new container fails to start**
+- **Attempts rollback if an approved update fails to start**
 - **Waits for Docker health checks**
-- **Cleans up old images by default**
+- **Cleans up old images by default after approved successful updates**
 - **DockUP also checks and updates itself through a temporary helper container**
 
-DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, stopped-container handling, or volume deletion.
+DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, stopped-container handling, or volume deletion. It only sends Telegram approval buttons when updates are found.
 
 ---
 
@@ -75,7 +75,7 @@ services:
 | `TG_CHAT_ID` | empty | Telegram Chat ID; notifications are disabled if empty |
 | `CHECK_INTERVAL` | `24h` | Check interval, Go duration format such as `30m`, `12h`, `24h` |
 | `TZ` | `Asia/Shanghai` | Time zone |
-| `CLEANUP` | `true` | Try to remove old images after successful updates |
+| `CLEANUP` | `true` | Try to remove old images after approved successful updates |
 | `RUN_ONCE` | `false` | Run one check and exit |
 | `UPDATE_TIMEOUT` | `10m` | Timeout for one update pass |
 
@@ -113,11 +113,11 @@ DockUP is intentionally direct: if an update is found, it asks for confirmation 
 
 That means:
 
-- A bad upstream image may break your service automatically
-- Core services such as databases, reverse proxies, and dashboards should be used with care
+- A bad upstream image may still break your service if you approve the update
+- Core services such as databases, reverse proxies, and dashboards should be reviewed before clicking Update
 - Mounting `/var/run/docker.sock` gives DockUP Docker management access on the host
 
-If you need allowlists, approvals, multiple notification channels, or orchestration, DockUP is not the right tool. It is designed to stay small and simple.
+If you need allowlists, complex approval workflows, multiple notification channels, or orchestration, DockUP is not the right tool. It is designed to stay small and simple.
 
 ---
 
@@ -138,8 +138,8 @@ Supported platforms:
 
 DockUP does not upload your container list or configuration. Network requests are limited to:
 
-- Pulling images from Docker registries
-- Sending notifications through the Telegram Bot API
+- Pulling images from Docker registries to detect updates
+- Sending button notifications and receiving callback events through the Telegram Bot API
 
 ---
 
