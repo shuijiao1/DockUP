@@ -8,20 +8,20 @@
 
 **DockUP is a tiny automatic updater for Docker containers.**
 
-> By default, DockUP checks all running containers every 24 hours. If a newer image is available, it pulls the image, recreates the container with the original configuration, and sends a Telegram notification.
+> By default, DockUP checks all running containers every 24 hours. If a newer image is available, it sends a separate Telegram message with Update and Ignore buttons for each container.
 
 ---
 
 ## 🎯 Features
 
-- **Automatically updates all running containers by default**
+- **Checks all running containers by default**
 - **Checks every 24 hours by default**
-- **Telegram notifications only**
+- **Telegram button confirmation only**
 - **Recreates containers with their original configuration**
 - **Attempts rollback if the new container fails to start**
 - **Waits for Docker health checks**
 - **Cleans up old images by default**
-- **Skips the `dockup` container itself**
+- **DockUP also checks and updates itself through a temporary helper container**
 
 DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, stopped-container handling, or volume deletion.
 
@@ -83,7 +83,7 @@ services:
 
 ## 💬 Telegram Notifications
 
-DockUP only sends notifications when at least one container is updated or fails to update. No-update runs are logged only.
+When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
 
 ---
 
@@ -95,7 +95,8 @@ For each run, DockUP:
 2. Pulls the current `image:tag` used by each container
 3. Compares the image ID before and after pulling
 4. If the image changed:
-   - Stops the old container
+   - Sends a per-container Telegram message with buttons
+   - After `Update` is clicked, stops the old container
    - Renames it as a backup container
    - Creates a new container with the original configuration
    - Starts the new container
@@ -108,7 +109,7 @@ For each run, DockUP:
 
 ## ⚠️ Notes
 
-DockUP is intentionally direct: if an update is found, it updates immediately.
+DockUP is intentionally direct: if an update is found, it asks for confirmation in Telegram.
 
 That means:
 

@@ -167,6 +167,35 @@ func (c *Client) UpdateContainer(ctx context.Context, id string, imageRef string
 	return oldID, newID, nil
 }
 
+func (c *Client) RunSelfUpdateHelper(ctx context.Context, helperImage, targetID, targetImage string, cleanup bool) (string, error) {
+	if helperImage == "" || targetID == "" || targetImage == "" {
+		return "", fmt.Errorf("helperImage, targetID and targetImage are required")
+	}
+	name := fmt.Sprintf("dockup-self-update-%d", time.Now().Unix())
+	body := map[string]any{
+		"Image": helperImage,
+		"Env": []string{
+			"DOCKUP_APPLY_CONTAINER_ID=" + targetID,
+			"DOCKUP_APPLY_IMAGE_REF=" + targetImage,
+			fmt.Sprintf("CLEANUP=%t", cleanup),
+		},
+		"HostConfig": map[string]any{
+			"Binds":       []string{"/var/run/docker.sock:/var/run/docker.sock"},
+			"AutoRemove":  true,
+			"NetworkMode": "bridge",
+		},
+	}
+	var created createResp
+	if err := c.doJSON(ctx, http.MethodPost, "/containers/create?name="+url.QueryEscape(name), body, &created); err != nil {
+		return "", err
+	}
+	if err := c.postEmpty(ctx, "/containers/"+url.PathEscape(created.ID)+"/start"); err != nil {
+		_ = c.delete(ctx, "/containers/"+url.PathEscape(created.ID)+"?force=true")
+		return "", err
+	}
+	return created.ID, nil
+}
+
 func (c *Client) waitHealthy(ctx context.Context, id string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {

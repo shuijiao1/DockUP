@@ -35,10 +35,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	notifier := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
-	log.Info("DockUP booting", "version", version, "interval", cfg.CheckInterval.String(), "telegram", notifier.Enabled())
+	if targetID := os.Getenv("DOCKUP_APPLY_CONTAINER_ID"); targetID != "" {
+		imageRef := os.Getenv("DOCKUP_APPLY_IMAGE_REF")
+		log.Info("DockUP self-update helper applying update", "container", targetID, "image", imageRef)
+		_, _, err := docker.UpdateContainer(ctx, targetID, imageRef, cfg.Cleanup)
+		if err != nil {
+			log.Error("DockUP self-update helper failed", "error", err)
+			os.Exit(1)
+		}
+		log.Info("DockUP self-update helper finished")
+		return
+	}
 
-	app := updater.New(cfg, docker, notifier, log)
+	bot := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
+	log.Info("DockUP booting", "version", version, "interval", cfg.CheckInterval.String(), "telegram", bot.Enabled())
+
+	app := updater.New(cfg, docker, bot, log)
 	if err := app.Run(ctx); err != nil && err != context.Canceled {
 		log.Error("DockUP stopped with error", "error", err)
 		os.Exit(1)
