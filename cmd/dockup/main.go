@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -50,7 +51,8 @@ func main() {
 	bot := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
 	log.Info("DockUP booting", "version", version, "interval", cfg.CheckInterval.String(), "telegram", bot.Enabled())
 	if cfg.SetupTestMessage && bot.Enabled() {
-		if _, err := bot.SendSetupTest(ctx, "✅ DockUP 已成功启动\n\n这是一条 Telegram Bot 测试消息。下面两个按钮仅用于确认按钮样式，不会执行任何操作。"); err != nil {
+		text := fmt.Sprintf("✅ DockUP 已启动 / 已更新\n\n版本：%s\n检测间隔：%s\n\n这是一条启动测试消息。每次 DockUP 重启或更新后都会发送，用来确认 Telegram Bot 和按钮正常。下面两个按钮仅用于样式测试，不会执行任何操作。", version, cfg.CheckInterval.String())
+		if _, err := bot.SendSetupTest(ctx, text); err != nil {
 			log.Warn("setup test message failed", "error", err)
 		}
 	}

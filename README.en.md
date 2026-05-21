@@ -80,13 +80,13 @@ services:
 | `CLEANUP` | `true` | Try to remove old images after approved successful updates |
 | `RUN_ONCE` | `false` | Run one check and exit |
 | `UPDATE_TIMEOUT` | `10m` | Timeout for one update pass |
-| `SETUP_TEST_MESSAGE` | `true` | Send a startup test message with no-op buttons |
+| `SETUP_TEST_MESSAGE` | `true` | Send a no-op button test message after start, restart, or update |
 
 ---
 
 ## 💬 Telegram Notifications
 
-After startup, DockUP sends one test message with `Update` and `Ignore` no-op buttons to confirm the bot and button style work. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
+After every start, restart, or update, DockUP sends one test message with `Update` and `Ignore` no-op buttons to confirm the bot and button style work. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
 
 ---
 
