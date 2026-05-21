@@ -3,6 +3,8 @@
 ![Docker](https://img.shields.io/badge/Docker-Update%20Notifier-2496ED?logo=docker&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/github/v/release/shuijiao1/DockUP?label=Release)
+![GHCR](https://img.shields.io/badge/GHCR-dockup-blue)
 
 [中文](README.md) | **English**
 
@@ -128,6 +130,7 @@ If you need allowlists, complex approval workflows, multiple notification channe
 
 ```bash
 docker pull ghcr.io/shuijiao1/dockup:latest
+docker pull ghcr.io/shuijiao1/dockup:v0.3.2
 ```
 
 Supported platforms:
@@ -143,6 +146,12 @@ DockUP does not upload your container list or configuration. Network requests ar
 
 - Pulling images from Docker registries to detect updates
 - Sending button notifications and receiving callback events through the Telegram Bot API
+
+---
+
+## 🔖 Current Version
+
+Latest version: `v0.3.2`
 
 ---
 
