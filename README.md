@@ -40,6 +40,7 @@ TG_BOT_TOKEN=你的 Telegram Bot Token
 TG_CHAT_ID=你的 Telegram Chat ID
 CHECK_INTERVAL=1h
 CLEANUP=true
+SETUP_TEST_MESSAGE=true
 ENV
 
 docker compose pull
@@ -61,6 +62,7 @@ services:
       TG_CHAT_ID: your_chat_id
       CHECK_INTERVAL: 1h
       CLEANUP: "true"
+      SETUP_TEST_MESSAGE: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
@@ -78,12 +80,13 @@ services:
 | `CLEANUP` | `true` | 点击更新且成功后是否尝试清理旧镜像 |
 | `RUN_ONCE` | `false` | 只运行一轮检查后退出 |
 | `UPDATE_TIMEOUT` | `10m` | 单轮更新超时时间 |
+| `SETUP_TEST_MESSAGE` | `true` | 启动成功后是否发送一条带无操作按钮的测试消息 |
 
 ---
 
 ## 💬 Telegram 通知
 
-发现更新时，每个容器都会单独发一条 Telegram 通知，并带两个按钮：`更新` / `忽略`。无更新时只写日志，不刷 Telegram。
+启动成功后会发送一条测试消息，消息带 `更新` / `忽略` 两个无操作按钮，用来确认 Bot 和按钮样式正常。发现更新时，每个容器都会单独发一条 Telegram 通知，并带两个按钮：`更新` / `忽略`。无更新时只写日志，不刷 Telegram。
 
 示例：
 

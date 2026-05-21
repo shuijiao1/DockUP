@@ -16,6 +16,7 @@ type Config struct {
 	RunOnce          bool
 	Cleanup          bool
 	Timeout          time.Duration
+	SetupTestMessage bool
 }
 
 func Load() (Config, error) {
@@ -44,6 +45,7 @@ func Load() (Config, error) {
 
 	cfg.RunOnce = parseBool(os.Getenv("RUN_ONCE"))
 	cfg.Cleanup = parseBoolDefault(os.Getenv("CLEANUP"), true)
+	cfg.SetupTestMessage = parseBoolDefault(os.Getenv("SETUP_TEST_MESSAGE"), true)
 
 	if v := strings.TrimSpace(os.Getenv("UPDATE_TIMEOUT")); v != "" {
 		d, err := time.ParseDuration(v)

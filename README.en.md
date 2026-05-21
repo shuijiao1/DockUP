@@ -40,6 +40,7 @@ TG_BOT_TOKEN=your Telegram bot token
 TG_CHAT_ID=your Telegram chat id
 CHECK_INTERVAL=1h
 CLEANUP=true
+SETUP_TEST_MESSAGE=true
 ENV
 
 docker compose pull
@@ -61,6 +62,7 @@ services:
       TG_CHAT_ID: your_chat_id
       CHECK_INTERVAL: 1h
       CLEANUP: "true"
+      SETUP_TEST_MESSAGE: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
@@ -78,12 +80,13 @@ services:
 | `CLEANUP` | `true` | Try to remove old images after approved successful updates |
 | `RUN_ONCE` | `false` | Run one check and exit |
 | `UPDATE_TIMEOUT` | `10m` | Timeout for one update pass |
+| `SETUP_TEST_MESSAGE` | `true` | Send a startup test message with no-op buttons |
 
 ---
 
 ## 💬 Telegram Notifications
 
-When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
+After startup, DockUP sends one test message with `Update` and `Ignore` no-op buttons to confirm the bot and button style work. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
 
 ---
 

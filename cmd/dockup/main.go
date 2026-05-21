@@ -49,6 +49,11 @@ func main() {
 
 	bot := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
 	log.Info("DockUP booting", "version", version, "interval", cfg.CheckInterval.String(), "telegram", bot.Enabled())
+	if cfg.SetupTestMessage && bot.Enabled() {
+		if _, err := bot.SendSetupTest(ctx, "✅ DockUP 已成功启动\n\n这是一条 Telegram Bot 测试消息。下面两个按钮仅用于确认按钮样式，不会执行任何操作。"); err != nil {
+			log.Warn("setup test message failed", "error", err)
+		}
+	}
 
 	app := updater.New(cfg, docker, bot, log)
 	if err := app.Run(ctx); err != nil && err != context.Canceled {

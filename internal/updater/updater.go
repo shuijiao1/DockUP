@@ -153,6 +153,10 @@ func (u *Updater) handleCallback(parent context.Context, cb telegram.Callback) {
 		return
 	}
 	action, token := parts[0], parts[1]
+	if action == "noop" {
+		_ = u.bot.AnswerCallback(parent, cb.ID, "测试按钮，无操作")
+		return
+	}
 
 	u.mu.Lock()
 	p, ok := u.pending[token]

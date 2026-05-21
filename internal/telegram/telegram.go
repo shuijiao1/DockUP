@@ -66,6 +66,16 @@ func (b *Bot) SendUpdatePrompt(ctx context.Context, text, updateData, ignoreData
 	return b.SendMessage(ctx, text, keyboard)
 }
 
+func (b *Bot) SendSetupTest(ctx context.Context, text string) (int64, error) {
+	keyboard := map[string]any{
+		"inline_keyboard": [][]map[string]string{{
+			{"text": "更新", "callback_data": "noop:setup-update"},
+			{"text": "忽略", "callback_data": "noop:setup-ignore"},
+		}},
+	}
+	return b.SendMessage(ctx, text, keyboard)
+}
+
 func (b *Bot) SendMessage(ctx context.Context, text string, replyMarkup any) (int64, error) {
 	if !b.Enabled() || strings.TrimSpace(text) == "" {
 		return 0, nil
