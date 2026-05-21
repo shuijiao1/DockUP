@@ -23,7 +23,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		TelegramBotToken: strings.TrimSpace(os.Getenv("TG_BOT_TOKEN")),
 		TelegramChatID:   strings.TrimSpace(os.Getenv("TG_CHAT_ID")),
-		CheckInterval:    time.Hour,
+		CheckInterval:    12 * time.Hour,
 		TimeZone:         getenv("TZ", "Asia/Shanghai"),
 		Timeout:          10 * time.Minute,
 	}

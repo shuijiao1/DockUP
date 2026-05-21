@@ -8,14 +8,14 @@
 
 **DockUP 是一个极简 Docker 容器更新提醒器。**
 
-> 默认每小时检测一次当前机器正在运行的 Docker 容器；发现镜像有更新后给每个容器单独发送 Telegram 按钮通知，由你点击更新或忽略。
+> 默认每 12 小时检测一次当前机器正在运行的 Docker 容器；发现镜像有更新后给每个容器单独发送 Telegram 按钮通知，由你点击更新或忽略。
 
 ---
 
 ## 🎯 核心特性
 
 - **默认检测所有运行中的容器**
-- **默认每小时检查一次**
+- **默认每 12 小时检查一次**
 - **只做 Telegram 按钮通知**
 - **保留原容器配置重建**
 - **更新失败自动尝试回滚旧容器**
@@ -38,7 +38,7 @@ cat > .env <<'ENV'
 TZ=Asia/Shanghai
 TG_BOT_TOKEN=你的 Telegram Bot Token
 TG_CHAT_ID=你的 Telegram Chat ID
-CHECK_INTERVAL=1h
+CHECK_INTERVAL=12h
 CLEANUP=true
 SETUP_TEST_MESSAGE=true
 ENV
@@ -60,7 +60,7 @@ services:
       TZ: Asia/Shanghai
       TG_BOT_TOKEN: your_bot_token
       TG_CHAT_ID: your_chat_id
-      CHECK_INTERVAL: 1h
+      CHECK_INTERVAL: 12h
       CLEANUP: "true"
       SETUP_TEST_MESSAGE: "true"
     volumes:
@@ -75,7 +75,7 @@ services:
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | 空 | Telegram Bot Token；为空则不发送通知 |
 | `TG_CHAT_ID` | 空 | Telegram Chat ID；为空则不发送通知 |
-| `CHECK_INTERVAL` | `1h` | 检查间隔，支持 Go duration，例如 `30m`、`1h`、`12h` |
+| `CHECK_INTERVAL` | `12h` | 检查间隔，支持 Go duration，例如 `30m`、`1h`、`12h` |
 | `TZ` | `Asia/Shanghai` | 时区 |
 | `CLEANUP` | `true` | 点击更新且成功后是否尝试清理旧镜像 |
 | `RUN_ONCE` | `false` | 只运行一轮检查后退出 |
