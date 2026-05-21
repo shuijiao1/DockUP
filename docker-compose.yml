@@ -7,7 +7,7 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_CHAT_ID: ${TG_CHAT_ID}
-      CHECK_INTERVAL: ${CHECK_INTERVAL:-24h}
+      CHECK_INTERVAL: ${CHECK_INTERVAL:-1h}
       CLEANUP: ${CLEANUP:-true}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

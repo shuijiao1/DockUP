@@ -8,14 +8,14 @@
 
 **DockUP is a tiny Docker update notifier with Telegram approval buttons.**
 
-> By default, DockUP checks all running containers every 24 hours. If a newer image is available, it sends a separate Telegram message with Update and Ignore buttons for each container.
+> By default, DockUP checks all running containers every hour. If a newer image is available, it sends a separate Telegram message with Update and Ignore buttons for each container.
 
 ---
 
 ## 🎯 Features
 
 - **Checks all running containers by default**
-- **Checks every 24 hours by default**
+- **Checks every hour by default**
 - **Telegram button confirmation only**
 - **Recreates containers with their original configuration**
 - **Attempts rollback if an approved update fails to start**
@@ -38,7 +38,7 @@ cat > .env <<'ENV'
 TZ=Asia/Shanghai
 TG_BOT_TOKEN=your Telegram bot token
 TG_CHAT_ID=your Telegram chat id
-CHECK_INTERVAL=24h
+CHECK_INTERVAL=1h
 CLEANUP=true
 ENV
 
@@ -59,7 +59,7 @@ services:
       TZ: Asia/Shanghai
       TG_BOT_TOKEN: your_bot_token
       TG_CHAT_ID: your_chat_id
-      CHECK_INTERVAL: 24h
+      CHECK_INTERVAL: 1h
       CLEANUP: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -73,7 +73,7 @@ services:
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | empty | Telegram Bot Token; notifications are disabled if empty |
 | `TG_CHAT_ID` | empty | Telegram Chat ID; notifications are disabled if empty |
-| `CHECK_INTERVAL` | `24h` | Check interval, Go duration format such as `30m`, `12h`, `24h` |
+| `CHECK_INTERVAL` | `1h` | Check interval, Go duration format such as `30m`, `1h`, `12h` |
 | `TZ` | `Asia/Shanghai` | Time zone |
 | `CLEANUP` | `true` | Try to remove old images after approved successful updates |
 | `RUN_ONCE` | `false` | Run one check and exit |
