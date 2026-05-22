@@ -3,6 +3,7 @@ package dockerx
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -33,6 +34,14 @@ type ContainerDetail struct {
 	WorkingDir string
 	ConfigFile string
 	Ports      string
+	Restarts   int64
+	CPUPercent float64
+	Memory     uint64
+	MemoryMax  uint64
+	NetRx      uint64
+	NetTx      uint64
+	BlockRead  uint64
+	BlockWrite uint64
 }
 
 func (c *Client) AllContainers(ctx context.Context) ([]ContainerInfo, error) {
@@ -75,6 +84,7 @@ func (c *Client) Projects(ctx context.Context) ([]ProjectInfo, error) {
 	}
 	out := make([]ProjectInfo, 0, len(projects))
 	for _, p := range projects {
+		sort.Slice(p.Containers, func(i, j int) bool { return p.Containers[i].Name < p.Containers[j].Name })
 		out = append(out, *p)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -123,8 +133,9 @@ func (c *Client) ContainerDetail(ctx context.Context, id string) (ContainerDetai
 		State:      str(state["Status"]),
 		Status:     str(state["Status"]),
 		Restarting: boolVal(state["Restarting"]),
-		Created:    str(inspect["Created"]),
-		Started:    str(state["StartedAt"]),
+		Restarts:   intVal(inspect["RestartCount"]),
+		Created:    formatTimeShort(str(inspect["Created"])),
+		Started:    formatTimeShort(str(state["StartedAt"])),
 		Project:    label(labels, "com.docker.compose.project"),
 		Service:    label(labels, "com.docker.compose.service"),
 		WorkingDir: label(labels, "com.docker.compose.project.working_dir"),
@@ -135,7 +146,43 @@ func (c *Client) ContainerDetail(ctx context.Context, id string) (ContainerDetai
 	if health, _ := state["Health"].(map[string]any); health != nil {
 		d.Health = str(health["Status"])
 	}
+	_ = c.fillStats(ctx, &d)
 	return d, nil
+}
+
+func (c *Client) fillStats(ctx context.Context, d *ContainerDetail) error {
+	if d.Info.ID == "" || d.State != "running" {
+		return nil
+	}
+	var stats map[string]any
+	path := "/containers/" + url.PathEscape(d.Info.ID) + "/stats?stream=false&one-shot=true"
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &stats); err != nil {
+		return err
+	}
+	cpu, _ := stats["cpu_stats"].(map[string]any)
+	pre, _ := stats["precpu_stats"].(map[string]any)
+	d.CPUPercent = cpuPercent(cpu, pre)
+	mem, _ := stats["memory_stats"].(map[string]any)
+	d.Memory = uintVal(mem["usage"])
+	d.MemoryMax = uintVal(mem["limit"])
+	nets, _ := stats["networks"].(map[string]any)
+	for _, raw := range nets {
+		m, _ := raw.(map[string]any)
+		d.NetRx += uintVal(m["rx_bytes"])
+		d.NetTx += uintVal(m["tx_bytes"])
+	}
+	blk, _ := stats["blkio_stats"].(map[string]any)
+	entries, _ := blk["io_service_bytes_recursive"].([]any)
+	for _, raw := range entries {
+		m, _ := raw.(map[string]any)
+		switch strings.ToLower(str(m["op"])) {
+		case "read":
+			d.BlockRead += uintVal(m["value"])
+		case "write":
+			d.BlockWrite += uintVal(m["value"])
+		}
+	}
+	return nil
 }
 
 func (c *Client) StartContainer(ctx context.Context, id string) error {
@@ -171,16 +218,6 @@ func (c *Client) containerInfoFromListItem(ctx context.Context, item listItem) C
 	return ContainerInfo{ID: item.ID, Name: name, Image: imageRef, ImageID: item.ImageID}
 }
 
-func (p ProjectInfo) Summary() string {
-	running := 0
-	for _, c := range p.Containers {
-		if c.ID != "" {
-			running++
-		}
-	}
-	return fmt.Sprintf("%s · %d containers", p.Type, running)
-}
-
 func formatPorts(raw any) string {
 	ports, _ := raw.(map[string]any)
 	if len(ports) == 0 {
@@ -200,7 +237,7 @@ func formatPorts(raw any) string {
 			if hostIP == "" || hostIP == "0.0.0.0" {
 				hostIP = "*"
 			}
-			parts = append(parts, fmt.Sprintf("%s:%s->%s", hostIP, hostPort, private))
+			parts = append(parts, fmt.Sprintf("%s:%s→%s", hostIP, hostPort, private))
 		}
 	}
 	sort.Strings(parts)
@@ -214,10 +251,63 @@ func boolVal(v any) bool {
 	return b
 }
 
+func intVal(v any) int64 { return int64(numVal(v)) }
+
+func uintVal(v any) uint64 {
+	n := numVal(v)
+	if n < 0 {
+		return 0
+	}
+	return uint64(n)
+}
+
+func numVal(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case int64:
+		return float64(x)
+	case int:
+		return float64(x)
+	default:
+		return 0
+	}
+}
+
+func cpuPercent(cpu, pre map[string]any) float64 {
+	cpuUsage, _ := cpu["cpu_usage"].(map[string]any)
+	preUsage, _ := pre["cpu_usage"].(map[string]any)
+	cpuDelta := numVal(cpuUsage["total_usage"]) - numVal(preUsage["total_usage"])
+	systemDelta := numVal(cpu["system_cpu_usage"]) - numVal(pre["system_cpu_usage"])
+	online := numVal(cpu["online_cpus"])
+	if online <= 0 {
+		percpu, _ := cpuUsage["percpu_usage"].([]any)
+		online = float64(len(percpu))
+	}
+	if cpuDelta <= 0 || systemDelta <= 0 || online <= 0 {
+		return 0
+	}
+	return math.Round((cpuDelta/systemDelta)*online*100*100) / 100
+}
+
+func FormatBytes(n uint64) string {
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	f := float64(n)
+	i := 0
+	for f >= 1024 && i < len(units)-1 {
+		f /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%d%s", n, units[i])
+	}
+	return fmt.Sprintf("%.1f%s", f, units[i])
+}
+
 func formatTimeShort(t string) string {
 	parsed, err := time.Parse(time.RFC3339Nano, t)
-	if err != nil {
-		return t
+	if err != nil || parsed.IsZero() {
+		return "-"
 	}
-	return parsed.Local().Format("2006-01-02 15:04:05")
+	return parsed.Local().Format("2006-01-02 15:04")
 }

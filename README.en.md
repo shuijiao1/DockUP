@@ -97,7 +97,8 @@ After every start, restart, or update, DockUP sends an entry message for the Doc
 The management panel supports:
 
 - Listing Docker / Compose projects
-- Viewing project status, images, and ports
+- Viewing project status, images, ports, CPU, memory, network, and block I/O
+- `/start`, `/docker`, `/settings`, and `/checkall` command entry points
 - Manually checking one project and updating immediately
 - Starting, stopping, and restarting projects
 - Delete confirmation before removing containers

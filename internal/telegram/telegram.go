@@ -38,6 +38,7 @@ type apiResp[T any] struct {
 type update struct {
 	UpdateID      int64          `json:"update_id"`
 	CallbackQuery *callbackQuery `json:"callback_query"`
+	Message       *message       `json:"message"`
 }
 
 type callbackQuery struct {
@@ -46,6 +47,11 @@ type callbackQuery struct {
 	Message *struct {
 		MessageID int64 `json:"message_id"`
 	} `json:"message"`
+}
+
+type message struct {
+	MessageID int64  `json:"message_id"`
+	Text      string `json:"text"`
 }
 
 func New(token, chatID string) *Bot {
@@ -69,10 +75,18 @@ func (b *Bot) SendUpdatePrompt(ctx context.Context, text, updateData, ignoreData
 }
 
 func (b *Bot) SendSetupTest(ctx context.Context, text string) (int64, error) {
-	return b.SendMessage(ctx, text, Keyboard([][]Button{
+	return b.SendMainMenu(ctx, text)
+}
+
+func (b *Bot) SendMainMenu(ctx context.Context, text string) (int64, error) {
+	return b.SendMessage(ctx, text, MainMenuKeyboard())
+}
+
+func MainMenuKeyboard() map[string]any {
+	return Keyboard([][]Button{
 		{{Text: "🐳 Docker 管理", Data: "home"}},
 		{{Text: "检查全部更新", Data: "checkall"}, {Text: "设置间隔", Data: "settings"}},
-	}))
+	})
 }
 
 func Keyboard(rows [][]Button) map[string]any {
@@ -160,17 +174,27 @@ func (b *Bot) PollCallbacks(ctx context.Context, out chan<- Callback) error {
 			if u.UpdateID >= b.offset {
 				b.offset = u.UpdateID + 1
 			}
-			if u.CallbackQuery == nil || u.CallbackQuery.Data == "" {
+			if u.CallbackQuery != nil && u.CallbackQuery.Data != "" {
+				msgID := int64(0)
+				if u.CallbackQuery.Message != nil {
+					msgID = u.CallbackQuery.Message.MessageID
+				}
+				select {
+				case out <- Callback{ID: u.CallbackQuery.ID, Data: u.CallbackQuery.Data, MessageID: msgID}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 				continue
 			}
-			msgID := int64(0)
-			if u.CallbackQuery.Message != nil {
-				msgID = u.CallbackQuery.Message.MessageID
-			}
-			select {
-			case out <- Callback{ID: u.CallbackQuery.ID, Data: u.CallbackQuery.Data, MessageID: msgID}:
-			case <-ctx.Done():
-				return ctx.Err()
+			if u.Message != nil {
+				cmd := normalizeCommand(u.Message.Text)
+				if cmd != "" {
+					select {
+					case out <- Callback{Data: "cmd:" + cmd, MessageID: u.Message.MessageID}:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
 			}
 		}
 	}
@@ -180,13 +204,37 @@ func (b *Bot) getUpdates(ctx context.Context) ([]update, error) {
 	payload := map[string]any{
 		"offset":          b.offset,
 		"timeout":         60,
-		"allowed_updates": []string{"callback_query"},
+		"allowed_updates": []string{"callback_query", "message"},
 	}
 	var updates []update
 	if err := b.call(ctx, "getUpdates", payload, &updates); err != nil {
 		return nil, err
 	}
 	return updates, nil
+}
+
+func normalizeCommand(text string) string {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "/") {
+		return ""
+	}
+	cmd := strings.Fields(text)[0]
+	cmd = strings.TrimPrefix(cmd, "/")
+	if i := strings.Index(cmd, "@"); i >= 0 {
+		cmd = cmd[:i]
+	}
+	switch cmd {
+	case "start", "help", "menu":
+		return "start"
+	case "docker", "dockup":
+		return "docker"
+	case "settings":
+		return "settings"
+	case "check", "checkall":
+		return "checkall"
+	default:
+		return ""
+	}
 }
 
 func (b *Bot) call(ctx context.Context, method string, payload any, out any) error {
