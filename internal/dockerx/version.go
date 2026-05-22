@@ -69,8 +69,6 @@ func (c *Client) InspectImageVersion(ctx context.Context, ref string) (ImageVers
 	if v.Tag == "" && v.Digest != "" {
 		if tag, err := c.LookupVersionTag(ctx, ref, v.Digest); err == nil {
 			v.Tag = tag
-		} else if c.log != nil {
-			c.log.Warn("image version tag lookup failed", "image", ref, "digest", v.Digest, "error", err)
 		}
 	}
 	return v, nil
