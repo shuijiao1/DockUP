@@ -25,12 +25,12 @@ type Updater struct {
 }
 
 type pendingUpdate struct {
-	Token     string
-	Container dockerx.ContainerInfo
-	OldImage  string
-	NewImage  string
-	MessageID int64
-	CreatedAt time.Time
+	Token      string
+	Container  dockerx.ContainerInfo
+	OldVersion dockerx.ImageVersion
+	NewVersion dockerx.ImageVersion
+	MessageID  int64
+	CreatedAt  time.Time
 }
 
 func New(cfg config.Config, docker *dockerx.Client, bot *telegram.Bot, log *slog.Logger) *Updater {
@@ -91,13 +91,12 @@ func (u *Updater) CheckOnce(parent context.Context) error {
 }
 
 func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) error {
-	oldImageID := c.ImageID
-	if oldImageID == "" {
-		var err error
-		oldImageID, err = u.docker.InspectImageID(ctx, c.Image)
-		if err != nil {
-			return err
-		}
+	oldVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
+	if err != nil {
+		return err
+	}
+	if oldVersion.ID == "" {
+		oldVersion.ID = c.ImageID
 	}
 
 	u.log.Info("pulling image", "container", c.Name, "image", c.Image)
@@ -105,35 +104,35 @@ func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) e
 		return err
 	}
 
-	newImageID, err := u.docker.InspectImageID(ctx, c.Image)
+	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
 	if err != nil {
 		return err
 	}
-	if normalizeID(oldImageID) == normalizeID(newImageID) {
+	if normalizeID(oldVersion.ID) == normalizeID(newVersion.ID) {
 		return nil
 	}
 
-	return u.notifyUpdate(ctx, c, oldImageID, newImageID)
+	return u.notifyUpdate(ctx, c, oldVersion, newVersion)
 }
 
-func (u *Updater) notifyUpdate(ctx context.Context, c dockerx.ContainerInfo, oldImageID, newImageID string) error {
+func (u *Updater) notifyUpdate(ctx context.Context, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) error {
 	if !u.bot.Enabled() {
-		u.log.Warn("update available but telegram is not configured", "container", c.Name, "image", c.Image, "old", shortID(oldImageID), "new", shortID(newImageID))
+		u.log.Warn("update available but telegram is not configured", "container", c.Name, "image", c.Image, "old", oldVersion.Display(), "new", newVersion.Display())
 		return nil
 	}
 	u.mu.Lock()
 	for _, p := range u.pending {
-		if p.Container.ID == c.ID && normalizeID(p.NewImage) == normalizeID(newImageID) {
+		if p.Container.ID == c.ID && normalizeID(p.NewVersion.ID) == normalizeID(newVersion.ID) {
 			u.mu.Unlock()
 			return nil
 		}
 	}
 	token := randomToken()
-	p := pendingUpdate{Token: token, Container: c, OldImage: oldImageID, NewImage: newImageID, CreatedAt: time.Now()}
+	p := pendingUpdate{Token: token, Container: c, OldVersion: oldVersion, NewVersion: newVersion, CreatedAt: time.Now()}
 	u.pending[token] = p
 	u.mu.Unlock()
 
-	text := formatPrompt(c, oldImageID, newImageID)
+	text := formatPrompt(c, oldVersion, newVersion)
 	msgID, err := u.bot.SendUpdatePrompt(ctx, text, "update:"+token, "ignore:"+token)
 	if err != nil {
 		return err
@@ -188,7 +187,7 @@ func (u *Updater) applyUpdate(parent context.Context, p pendingUpdate) {
 	ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
 	defer cancel()
 
-	u.log.Info("updating container", "container", p.Container.Name, "image", p.Container.Image, "old", shortID(p.OldImage), "new", shortID(p.NewImage))
+	u.log.Info("updating container", "container", p.Container.Name, "image", p.Container.Image, "old", p.OldVersion.Display(), "new", p.NewVersion.Display())
 	if p.Container.Name == "dockup" {
 		helperID, err := u.docker.RunSelfUpdateHelper(ctx, p.Container.Image, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
 		if err != nil {
@@ -206,28 +205,28 @@ func (u *Updater) applyUpdate(parent context.Context, p pendingUpdate) {
 	_ = u.bot.EditMessage(parent, p.MessageID, formatSuccess(p))
 }
 
-func formatPrompt(c dockerx.ContainerInfo, oldImageID, newImageID string) string {
-	return fmt.Sprintf("🐳 发现 Docker 镜像更新\n\n容器：%s\n镜像：%s\n旧版本：%s\n新版本：%s\n\n请选择是否更新。", c.Name, c.Image, shortID(oldImageID), shortID(newImageID))
+func formatPrompt(c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) string {
+	return fmt.Sprintf("🐳 发现 Docker 镜像更新\n\n容器：%s\n镜像：%s\n旧版本：%s\n新版本：%s\n\n请选择是否更新。", c.Name, c.Image, oldVersion.Display(), newVersion.Display())
 }
 
 func formatUpdating(p pendingUpdate) string {
-	return fmt.Sprintf("⏳ 正在更新 Docker 容器\n\n容器：%s\n镜像：%s\n版本：%s → %s", p.Container.Name, p.Container.Image, shortID(p.OldImage), shortID(p.NewImage))
+	return fmt.Sprintf("⏳ 正在更新 Docker 容器\n\n容器：%s\n镜像：%s\n版本：%s → %s", p.Container.Name, p.Container.Image, p.OldVersion.Display(), p.NewVersion.Display())
 }
 
 func formatSuccess(p pendingUpdate) string {
-	return fmt.Sprintf("✅ Docker 容器更新成功\n\n容器：%s\n镜像：%s\n版本：%s → %s", p.Container.Name, p.Container.Image, shortID(p.OldImage), shortID(p.NewImage))
+	return fmt.Sprintf("✅ Docker 容器更新成功\n\n容器：%s\n镜像：%s\n版本：%s → %s", p.Container.Name, p.Container.Image, p.OldVersion.Display(), p.NewVersion.Display())
 }
 
 func formatSelfUpdateStarted(p pendingUpdate, helperID string) string {
-	return fmt.Sprintf("🔄 DockUP 自更新已交给临时容器执行\n\n容器：%s\n镜像：%s\n版本：%s → %s\n临时容器：%s\n\n如果更新成功，DockUP 会以新镜像重新启动。", p.Container.Name, p.Container.Image, shortID(p.OldImage), shortID(p.NewImage), shortID(helperID))
+	return fmt.Sprintf("🔄 DockUP 自更新已交给临时容器执行\n\n容器：%s\n镜像：%s\n版本：%s → %s\n临时容器：%s\n\n如果更新成功，DockUP 会以新镜像重新启动。", p.Container.Name, p.Container.Image, p.OldVersion.Display(), p.NewVersion.Display(), shortID(helperID))
 }
 
 func formatFailed(p pendingUpdate, err error) string {
-	return fmt.Sprintf("❌ Docker 容器更新失败\n\n容器：%s\n镜像：%s\n版本：%s → %s\n错误：%s", p.Container.Name, p.Container.Image, shortID(p.OldImage), shortID(p.NewImage), err.Error())
+	return fmt.Sprintf("❌ Docker 容器更新失败\n\n容器：%s\n镜像：%s\n版本：%s → %s\n错误：%s", p.Container.Name, p.Container.Image, p.OldVersion.Display(), p.NewVersion.Display(), err.Error())
 }
 
 func formatIgnored(p pendingUpdate) string {
-	return fmt.Sprintf("⏭️ 已忽略 Docker 镜像更新\n\n容器：%s\n镜像：%s\n版本：%s → %s", p.Container.Name, p.Container.Image, shortID(p.OldImage), shortID(p.NewImage))
+	return fmt.Sprintf("⏭️ 已忽略 Docker 镜像更新\n\n容器：%s\n镜像：%s\n版本：%s → %s", p.Container.Name, p.Container.Image, p.OldVersion.Display(), p.NewVersion.Display())
 }
 
 func randomToken() string {

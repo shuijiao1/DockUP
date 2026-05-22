@@ -98,9 +98,9 @@ For each run, DockUP:
 
 1. Lists all running containers
 2. Pulls the current `image:tag` used by each container
-3. Compares the image ID before and after pulling
+3. Compares the image ID before and after pulling, and tries to resolve a semantic tag from the registry digest
 4. If the image changed:
-   - Sends a per-container Telegram message with buttons
+   - Sends a per-container Telegram message with buttons, preferring tag-based versions and falling back to short image IDs
    - After `Update` is clicked, stops the old container
    - Renames it as a backup container
    - Creates a new container with the original configuration
