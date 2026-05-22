@@ -134,14 +134,26 @@ func (u *Updater) showHome(ctx context.Context, messageID int64) {
 			}
 		}
 	}
-	text := fmt.Sprintf("🐳 Docker 管理\n\n项目：%d 个\n容器：%d 个运行中\n自动检查：%s\n\n选择一个项目查看详情。", len(projects), running, u.interval().String())
+	text := fmt.Sprintf("🐳 Docker 管理\n\n项目：%d 个 · 运行中：%d 个容器\n自动检查：%s\n\n选择项目查看状态和操作。", len(projects), running, u.interval().String())
 	rows := [][]telegram.Button{}
+	projectButtons := []telegram.Button{}
 	for _, p := range projects {
 		icon := "🐳"
 		if p.Type == "compose" {
 			icon = "📦"
 		}
-		rows = append(rows, []telegram.Button{{Text: fmt.Sprintf("%s %s · %d", icon, p.Name, len(p.Containers)), Data: "project:" + p.Key}})
+		label := fmt.Sprintf("%s %s", icon, p.Name)
+		if len(p.Containers) > 1 {
+			label = fmt.Sprintf("%s · %d", label, len(p.Containers))
+		}
+		projectButtons = append(projectButtons, telegram.Button{Text: label, Data: "project:" + p.Key})
+		if len(projectButtons) == 2 {
+			rows = append(rows, projectButtons)
+			projectButtons = []telegram.Button{}
+		}
+	}
+	if len(projectButtons) > 0 {
+		rows = append(rows, projectButtons)
 	}
 	rows = append(rows, []telegram.Button{{Text: "检查全部更新", Data: "checkall"}, {Text: "设置间隔", Data: "settings"}})
 	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
@@ -165,21 +177,75 @@ func (u *Updater) showProject(ctx context.Context, messageID int64, key string) 
 }
 
 func (u *Updater) formatProjectStatus(ctx context.Context, p dockerx.ProjectInfo) string {
-	lines := []string{fmt.Sprintf("🐳 %s", p.Name), ""}
-	lines = append(lines, "类型："+typeLabel(p.Type))
+	details := []dockerx.ContainerDetail{}
+	running := 0
+	healthy := 0
+	var cpu float64
+	var mem uint64
+	var netRx uint64
+	var netTx uint64
+	var read uint64
+	var write uint64
+	for _, c := range p.Containers {
+		d, err := u.docker.ContainerDetail(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		details = append(details, d)
+		if d.State == "running" {
+			running++
+		}
+		if d.Health == "healthy" {
+			healthy++
+		}
+		cpu += d.CPUPercent
+		mem += d.Memory
+		netRx += d.NetRx
+		netTx += d.NetTx
+		read += d.BlockRead
+		write += d.BlockWrite
+	}
+
+	headStatus := "🔴 未运行"
+	if running == len(p.Containers) && running > 0 {
+		headStatus = "🟢 运行中"
+	} else if running > 0 {
+		headStatus = "🟡 部分运行"
+	}
+	if healthy > 0 && healthy == running {
+		headStatus += " · 健康"
+	}
+
+	lines := []string{
+		fmt.Sprintf("🐳 %s", p.Name),
+		headStatus,
+		"",
+		"📌 概览",
+		fmt.Sprintf("类型：%s", typeLabel(p.Type)),
+		fmt.Sprintf("容器：%d 个 · 运行中 %d 个", len(p.Containers), running),
+		fmt.Sprintf("资源：CPU %.2f%% · 内存 %s", cpu, dockerx.FormatBytes(mem)),
+	}
+	if netRx+netTx > 0 {
+		lines = append(lines, fmt.Sprintf("流量：↓%s ↑%s", dockerx.FormatBytes(netRx), dockerx.FormatBytes(netTx)))
+	}
+	if read+write > 0 {
+		lines = append(lines, fmt.Sprintf("磁盘：读 %s · 写 %s", dockerx.FormatBytes(read), dockerx.FormatBytes(write)))
+	}
 	if p.WorkingDir != "" {
 		lines = append(lines, "目录："+p.WorkingDir)
 	}
 	if p.ConfigFile != "" {
 		lines = append(lines, "Compose："+p.ConfigFile)
 	}
-	lines = append(lines, fmt.Sprintf("容器：%d", len(p.Containers)), "")
-	for _, c := range p.Containers {
-		d, err := u.docker.ContainerDetail(ctx, c.ID)
-		if err != nil {
-			lines = append(lines, fmt.Sprintf("• %s：读取失败", c.Name))
-			continue
-		}
+	lines = append(lines, "")
+
+	if len(details) == 0 {
+		lines = append(lines, "容器详情读取失败。")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "📦 容器")
+	for _, d := range details {
 		lines = append(lines, formatContainerDetail(d)...)
 	}
 	return strings.Join(lines, "\n")
@@ -191,37 +257,35 @@ func formatContainerDetail(d dockerx.ContainerDetail) []string {
 		state += " · " + healthLabel(d.Health)
 	}
 	name := d.Info.Name
-	if d.Service != "" {
+	if d.Service != "" && d.Service != d.Info.Name {
 		name += " / " + d.Service
 	}
+
 	lines := []string{
 		fmt.Sprintf("%s %s", stateIcon(d.State), name),
-		fmt.Sprintf("  状态：%s", state),
-		fmt.Sprintf("  镜像：%s", d.Info.Image),
-		fmt.Sprintf("  ID：%s", shortID(d.Info.ID)),
-	}
-	if d.Ports != "-" {
-		lines = append(lines, "  端口："+d.Ports)
+		fmt.Sprintf("状态：%s", state),
+		fmt.Sprintf("镜像：%s", d.Info.Image),
 	}
 	if d.State == "running" {
-		mem := dockerx.FormatBytes(d.Memory)
-		if d.MemoryMax > 0 {
-			mem += " / " + dockerx.FormatBytes(d.MemoryMax)
-		}
-		lines = append(lines, fmt.Sprintf("  占用：CPU %.2f%% · 内存 %s", d.CPUPercent, mem))
-		if d.NetRx+d.NetTx > 0 {
-			lines = append(lines, fmt.Sprintf("  网络：↓%s ↑%s", dockerx.FormatBytes(d.NetRx), dockerx.FormatBytes(d.NetTx)))
-		}
-		if d.BlockRead+d.BlockWrite > 0 {
-			lines = append(lines, fmt.Sprintf("  磁盘：读 %s · 写 %s", dockerx.FormatBytes(d.BlockRead), dockerx.FormatBytes(d.BlockWrite)))
-		}
+		lines = append(lines, fmt.Sprintf("占用：CPU %.2f%% · 内存 %s", d.CPUPercent, dockerx.FormatBytes(d.Memory)))
 	}
+	if d.Ports != "-" {
+		lines = append(lines, "端口："+d.Ports)
+	}
+	if d.State == "running" && d.NetRx+d.NetTx > 0 {
+		lines = append(lines, fmt.Sprintf("网络：↓%s ↑%s", dockerx.FormatBytes(d.NetRx), dockerx.FormatBytes(d.NetTx)))
+	}
+	if d.State == "running" && d.BlockRead+d.BlockWrite > 0 {
+		lines = append(lines, fmt.Sprintf("磁盘：读 %s · 写 %s", dockerx.FormatBytes(d.BlockRead), dockerx.FormatBytes(d.BlockWrite)))
+	}
+	meta := []string{fmt.Sprintf("ID %s", shortID(d.Info.ID))}
 	if d.Restarts > 0 {
-		lines = append(lines, fmt.Sprintf("  重启次数：%d", d.Restarts))
+		meta = append(meta, fmt.Sprintf("重启 %d", d.Restarts))
 	}
 	if d.Started != "-" {
-		lines = append(lines, "  启动："+d.Started)
+		meta = append(meta, "启动 "+d.Started)
 	}
+	lines = append(lines, strings.Join(meta, " · "))
 	lines = append(lines, "")
 	return lines
 }
