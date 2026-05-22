@@ -50,6 +50,11 @@ func main() {
 
 	bot := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
 	log.Info("DockUP booting", "version", version, "interval", cfg.CheckInterval.String(), "telegram", bot.Enabled())
+	if bot.Enabled() {
+		if err := bot.SetCommands(ctx); err != nil {
+			log.Warn("set telegram commands failed", "error", err)
+		}
+	}
 	if cfg.SetupTestMessage && bot.Enabled() {
 		text := fmt.Sprintf("✅ DockUP 已启动 / 已更新\n\n版本：%s\n检测间隔：%s\n\n点击下面按钮进入 Docker 管理面板，可查看项目状态、手动检查更新、启动/停止/重启或二次确认删除。", version, cfg.CheckInterval.String())
 		if _, err := bot.SendSetupTest(ctx, text); err != nil {

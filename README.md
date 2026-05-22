@@ -98,7 +98,7 @@ services:
 
 - 查看所有 Docker / Compose 项目
 - 查看项目状态、镜像、端口、CPU、内存、网络和磁盘 I/O
-- `/start`、`/docker`、`/settings`、`/checkall` 命令入口
+- 自动注册 Telegram 菜单命令：`/start`、`/docker`、`/settings`、`/checkall`
 - 手动检查某个项目更新，发现更新后可立即更新
 - 启动、停止、重启项目
 - 删除项目前二次确认

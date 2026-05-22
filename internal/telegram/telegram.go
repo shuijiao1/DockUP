@@ -82,6 +82,20 @@ func (b *Bot) SendMainMenu(ctx context.Context, text string) (int64, error) {
 	return b.SendMessage(ctx, text, MainMenuKeyboard())
 }
 
+func (b *Bot) SetCommands(ctx context.Context) error {
+	if !b.Enabled() {
+		return nil
+	}
+	commands := []map[string]string{
+		{"command": "start", "description": "打开 DockUP 主菜单"},
+		{"command": "docker", "description": "查看 Docker / Compose 项目"},
+		{"command": "checkall", "description": "立即检查全部容器更新"},
+		{"command": "settings", "description": "设置自动检查间隔"},
+		{"command": "help", "description": "显示帮助和主菜单"},
+	}
+	return b.call(ctx, "setMyCommands", map[string]any{"commands": commands}, nil)
+}
+
 func MainMenuKeyboard() map[string]any {
 	return Keyboard([][]Button{
 		{{Text: "🐳 Docker 管理", Data: "home"}},

@@ -98,7 +98,7 @@ The management panel supports:
 
 - Listing Docker / Compose projects
 - Viewing project status, images, ports, CPU, memory, network, and block I/O
-- `/start`, `/docker`, `/settings`, and `/checkall` command entry points
+- Automatically registers Telegram menu commands: `/start`, `/docker`, `/settings`, and `/checkall`
 - Manually checking one project and updating immediately
 - Starting, stopping, and restarting projects
 - Delete confirmation before removing containers
