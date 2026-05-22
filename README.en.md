@@ -29,8 +29,6 @@
 - **Cleans up old images by default after approved successful updates**
 - **DockUP also checks and updates itself through a temporary helper container**
 
-DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, or volume deletion. Automatic and manual checks both use Telegram approval buttons when updates are found.
-
 ---
 
 ## 🚀 Quick Start
