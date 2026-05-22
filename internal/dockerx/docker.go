@@ -56,20 +56,7 @@ func (c *Client) RunningContainers(ctx context.Context) ([]ContainerInfo, error)
 	}
 	out := make([]ContainerInfo, 0, len(items))
 	for _, item := range items {
-		name := item.ID[:12]
-		if len(item.Names) > 0 {
-			name = strings.TrimPrefix(item.Names[0], "/")
-		}
-		imageRef := item.Image
-		var inspect map[string]any
-		if err := c.doJSON(ctx, http.MethodGet, "/containers/"+url.PathEscape(item.ID)+"/json", nil, &inspect); err == nil {
-			if cfg, _ := inspect["Config"].(map[string]any); cfg != nil {
-				if img := str(cfg["Image"]); img != "" {
-					imageRef = img
-				}
-			}
-		}
-		out = append(out, ContainerInfo{ID: item.ID, Name: name, Image: imageRef, ImageID: item.ImageID})
+		out = append(out, c.containerInfoFromListItem(ctx, item))
 	}
 	return out, nil
 }

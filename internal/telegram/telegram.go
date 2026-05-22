@@ -24,6 +24,11 @@ type Callback struct {
 	MessageID int64
 }
 
+type Button struct {
+	Text string
+	Data string
+}
+
 type apiResp[T any] struct {
 	OK          bool   `json:"ok"`
 	Description string `json:"description"`
@@ -57,23 +62,29 @@ func (b *Bot) Send(ctx context.Context, text string) error {
 }
 
 func (b *Bot) SendUpdatePrompt(ctx context.Context, text, updateData, ignoreData string) (int64, error) {
-	keyboard := map[string]any{
-		"inline_keyboard": [][]map[string]string{{
-			{"text": "更新", "callback_data": updateData},
-			{"text": "忽略", "callback_data": ignoreData},
-		}},
-	}
-	return b.SendMessage(ctx, text, keyboard)
+	return b.SendMessage(ctx, text, Keyboard([][]Button{{
+		{Text: "更新", Data: updateData},
+		{Text: "忽略", Data: ignoreData},
+	}}))
 }
 
 func (b *Bot) SendSetupTest(ctx context.Context, text string) (int64, error) {
-	keyboard := map[string]any{
-		"inline_keyboard": [][]map[string]string{{
-			{"text": "更新", "callback_data": "noop:setup-update"},
-			{"text": "忽略", "callback_data": "noop:setup-ignore"},
-		}},
+	return b.SendMessage(ctx, text, Keyboard([][]Button{
+		{{Text: "🐳 Docker 管理", Data: "home"}},
+		{{Text: "检查全部更新", Data: "checkall"}, {Text: "设置间隔", Data: "settings"}},
+	}))
+}
+
+func Keyboard(rows [][]Button) map[string]any {
+	inline := make([][]map[string]string, 0, len(rows))
+	for _, row := range rows {
+		out := make([]map[string]string, 0, len(row))
+		for _, btn := range row {
+			out = append(out, map[string]string{"text": btn.Text, "callback_data": btn.Data})
+		}
+		inline = append(inline, out)
 	}
-	return b.SendMessage(ctx, text, keyboard)
+	return map[string]any{"inline_keyboard": inline}
 }
 
 func (b *Bot) SendMessage(ctx context.Context, text string, replyMarkup any) (int64, error) {
@@ -98,15 +109,22 @@ func (b *Bot) SendMessage(ctx context.Context, text string, replyMarkup any) (in
 }
 
 func (b *Bot) EditMessage(ctx context.Context, messageID int64, text string) error {
+	return b.EditMessageWithKeyboard(ctx, messageID, text, nil)
+}
+
+func (b *Bot) EditMessageWithKeyboard(ctx context.Context, messageID int64, text string, replyMarkup any) error {
 	if !b.Enabled() || messageID == 0 || strings.TrimSpace(text) == "" {
 		return nil
+	}
+	if replyMarkup == nil {
+		replyMarkup = map[string]any{"inline_keyboard": [][]map[string]string{}}
 	}
 	payload := map[string]any{
 		"chat_id":                  b.chatID,
 		"message_id":               messageID,
 		"text":                     text,
 		"disable_web_page_preview": true,
-		"reply_markup":             map[string]any{"inline_keyboard": [][]map[string]string{}},
+		"reply_markup":             replyMarkup,
 	}
 	return b.call(ctx, "editMessageText", payload, nil)
 }

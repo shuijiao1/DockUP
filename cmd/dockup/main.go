@@ -51,9 +51,9 @@ func main() {
 	bot := telegram.New(cfg.TelegramBotToken, cfg.TelegramChatID)
 	log.Info("DockUP booting", "version", version, "interval", cfg.CheckInterval.String(), "telegram", bot.Enabled())
 	if cfg.SetupTestMessage && bot.Enabled() {
-		text := fmt.Sprintf("✅ DockUP 已启动 / 已更新\n\n版本：%s\n检测间隔：%s\n\n这是一条启动测试消息。每次 DockUP 重启或更新后都会发送，用来确认 Telegram Bot 和按钮正常。下面两个按钮仅用于样式测试，不会执行任何操作。", version, cfg.CheckInterval.String())
+		text := fmt.Sprintf("✅ DockUP 已启动 / 已更新\n\n版本：%s\n检测间隔：%s\n\n点击下面按钮进入 Docker 管理面板，可查看项目状态、手动检查更新、启动/停止/重启或二次确认删除。", version, cfg.CheckInterval.String())
 		if _, err := bot.SendSetupTest(ctx, text); err != nil {
-			log.Warn("setup test message failed", "error", err)
+			log.Warn("setup message failed", "error", err)
 		}
 	}
 

@@ -8,9 +8,9 @@
 
 [中文](README.md) | **English**
 
-**DockUP is a tiny Docker update notifier with Telegram approval buttons.**
+**DockUP is a lightweight Telegram-based Docker manager with automatic update notifications and manual project controls.**
 
-> By default, DockUP checks all running containers every 12 hours. If a newer image is available, it sends a separate Telegram message with Update and Ignore buttons for each container.
+> By default, DockUP checks all running containers every 12 hours. You can also open the Telegram project panel to view status, manually check updates, start/stop/restart, or delete with confirmation.
 
 ---
 
@@ -18,14 +18,18 @@
 
 - **Checks all running containers by default**
 - **Checks every 12 hours by default**
-- **Telegram button confirmation only**
+- **Telegram button-based Docker management panel**
+- **Detects Docker containers and Compose projects**
+- **Manually checks one project and updates immediately**
+- **Supports start / stop / restart / delete with confirmation**
+- **Temporarily changes the automatic check interval from Telegram**
 - **Recreates containers with their original configuration**
 - **Attempts rollback if an approved update fails to start**
 - **Waits for Docker health checks**
 - **Cleans up old images by default after approved successful updates**
 - **DockUP also checks and updates itself through a temporary helper container**
 
-DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, stopped-container handling, or volume deletion. It only sends Telegram approval buttons when updates are found.
+DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, or volume deletion. Automatic and manual checks both use Telegram approval buttons when updates are found.
 
 ---
 
@@ -88,7 +92,16 @@ services:
 
 ## 💬 Telegram Notifications
 
-After every start, restart, or update, DockUP sends one test message with `Update` and `Ignore` no-op buttons to confirm the bot and button style work. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
+After every start, restart, or update, DockUP sends an entry message for the Docker management panel. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
+
+The management panel supports:
+
+- Listing Docker / Compose projects
+- Viewing project status, images, and ports
+- Manually checking one project and updating immediately
+- Starting, stopping, and restarting projects
+- Delete confirmation before removing containers
+- Temporarily changing the automatic check interval
 
 ---
 

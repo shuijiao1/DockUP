@@ -16,12 +16,15 @@ import (
 )
 
 type Updater struct {
-	cfg     config.Config
-	docker  *dockerx.Client
-	bot     *telegram.Bot
-	log     *slog.Logger
-	pending map[string]pendingUpdate
-	mu      sync.Mutex
+	cfg             config.Config
+	docker          *dockerx.Client
+	bot             *telegram.Bot
+	log             *slog.Logger
+	pending         map[string]pendingUpdate
+	manualChecks    map[string]pendingUpdate
+	confirmDeletes  map[string]confirmDelete
+	currentInterval time.Duration
+	mu              sync.Mutex
 }
 
 type pendingUpdate struct {
@@ -33,8 +36,24 @@ type pendingUpdate struct {
 	CreatedAt  time.Time
 }
 
+type confirmDelete struct {
+	Token     string
+	Project   dockerx.ProjectInfo
+	MessageID int64
+	CreatedAt time.Time
+}
+
 func New(cfg config.Config, docker *dockerx.Client, bot *telegram.Bot, log *slog.Logger) *Updater {
-	return &Updater{cfg: cfg, docker: docker, bot: bot, log: log, pending: map[string]pendingUpdate{}}
+	return &Updater{
+		cfg:             cfg,
+		docker:          docker,
+		bot:             bot,
+		log:             log,
+		pending:         map[string]pendingUpdate{},
+		manualChecks:    map[string]pendingUpdate{},
+		confirmDeletes:  map[string]confirmDelete{},
+		currentInterval: cfg.CheckInterval,
+	}
 }
 
 func (u *Updater) Run(ctx context.Context) error {
@@ -51,12 +70,12 @@ func (u *Updater) Run(ctx context.Context) error {
 		return u.CheckOnce(ctx)
 	}
 
-	u.log.Info("DockUP started", "interval", u.cfg.CheckInterval.String())
+	u.log.Info("DockUP started", "interval", u.currentInterval.String())
 	if err := u.CheckOnce(ctx); err != nil {
 		u.log.Error("initial check failed", "error", err)
 	}
 
-	ticker := time.NewTicker(u.cfg.CheckInterval)
+	ticker := time.NewTicker(u.currentInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -68,6 +87,10 @@ func (u *Updater) Run(ctx context.Context) error {
 			if err := u.CheckOnce(ctx); err != nil {
 				u.log.Error("scheduled check failed", "error", err)
 			}
+		}
+		if interval := u.interval(); interval != u.currentInterval {
+			ticker.Reset(interval)
+			u.currentInterval = interval
 		}
 	}
 }
@@ -147,6 +170,9 @@ func (u *Updater) notifyUpdate(ctx context.Context, c dockerx.ContainerInfo, old
 }
 
 func (u *Updater) handleCallback(parent context.Context, cb telegram.Callback) {
+	if u.handleManageCallback(parent, cb) {
+		return
+	}
 	parts := strings.SplitN(cb.Data, ":", 2)
 	if len(parts) != 2 {
 		return
