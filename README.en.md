@@ -1,6 +1,6 @@
 # DockUP
 
-![Docker](https://img.shields.io/badge/Docker-Update%20Notifier-2496ED?logo=docker&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Manager%20%2B%20Updater-2496ED?logo=docker&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Version](https://img.shields.io/github/v/release/shuijiao1/DockUP?label=Release)
@@ -35,6 +35,14 @@ DockUP does not provide a web UI, HTTP API, Slack/email/Teams notifications, or 
 
 ## 🚀 Quick Start
 
+### 1. Create a Telegram Bot
+
+1. Talk to [@BotFather](https://t.me/BotFather) and create a bot with `/newbot` to get `TG_BOT_TOKEN`
+2. Get your `TG_CHAT_ID`: send a message to the bot and call `https://api.telegram.org/bot<TOKEN>/getUpdates`, or use any Telegram ID helper bot
+3. Make sure the bot can send messages to your target chat
+
+### 2. Deploy with Docker Compose
+
 Docker Compose is recommended:
 
 ```bash
@@ -53,6 +61,8 @@ docker compose pull
 docker compose up -d
 docker compose logs -f
 ```
+
+### 3. Custom Compose
 
 Or write your own compose file:
 
@@ -86,13 +96,23 @@ services:
 | `CLEANUP` | `true` | Try to remove old images after approved successful updates |
 | `RUN_ONCE` | `false` | Run one check and exit |
 | `UPDATE_TIMEOUT` | `10m` | Timeout for one update pass |
-| `SETUP_TEST_MESSAGE` | `true` | Send a no-op button test message after start, restart, or update |
+| `SETUP_TEST_MESSAGE` | `true` | Send an entry message after start, restart, or update |
 
 ---
 
-## 💬 Telegram Notifications
+## 💬 Telegram Interaction
 
 After every start, restart, or update, DockUP sends an entry message for the Docker management panel. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
+
+The command menu is registered automatically:
+
+| Command | Description |
+| --- | --- |
+| `/start` | Open the DockUP main menu |
+| `/docker` | View Docker / Compose projects |
+| `/checkall` | Check all containers immediately |
+| `/settings` | Set the automatic check interval |
+| `/help` | Show help and the main menu |
 
 The management panel supports:
 
@@ -108,7 +128,7 @@ The management panel supports:
 
 ## 🛠 How It Works
 
-For each run, DockUP:
+For each automatic check, DockUP:
 
 1. Lists all running containers
 2. Pulls the current `image:tag` used by each container
@@ -136,7 +156,7 @@ That means:
 - Core services such as databases, reverse proxies, and dashboards should be reviewed before clicking Update
 - Mounting `/var/run/docker.sock` gives DockUP Docker management access on the host
 
-If you need allowlists, complex approval workflows, multiple notification channels, or orchestration, DockUP is not the right tool. It is designed to stay small and simple.
+If you need allowlists, complex approval workflows, multiple notification channels, or orchestration, DockUP is not the right tool. It is designed to stay small and simple as a Telegram Docker manager + update notifier.
 
 ---
 
@@ -159,7 +179,7 @@ Supported platforms:
 DockUP does not upload your container list or configuration. Network requests are limited to:
 
 - Pulling images from Docker registries to detect updates
-- Sending button notifications and receiving callback events through the Telegram Bot API
+- Sending button notifications, registering bot commands, and receiving button/command callbacks through the Telegram Bot API
 
 
 ---
