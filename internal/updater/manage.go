@@ -180,12 +180,6 @@ func (u *Updater) formatProjectStatus(ctx context.Context, p dockerx.ProjectInfo
 	details := []dockerx.ContainerDetail{}
 	running := 0
 	healthy := 0
-	var cpu float64
-	var mem uint64
-	var netRx uint64
-	var netTx uint64
-	var read uint64
-	var write uint64
 	for _, c := range p.Containers {
 		d, err := u.docker.ContainerDetail(ctx, c.ID)
 		if err != nil {
@@ -198,12 +192,6 @@ func (u *Updater) formatProjectStatus(ctx context.Context, p dockerx.ProjectInfo
 		if d.Health == "healthy" {
 			healthy++
 		}
-		cpu += d.CPUPercent
-		mem += d.Memory
-		netRx += d.NetRx
-		netTx += d.NetTx
-		read += d.BlockRead
-		write += d.BlockWrite
 	}
 
 	headStatus := "🔴 未运行"
@@ -221,30 +209,23 @@ func (u *Updater) formatProjectStatus(ctx context.Context, p dockerx.ProjectInfo
 		headStatus,
 		"",
 		"📌 概览",
-		fmt.Sprintf("类型：%s", typeLabel(p.Type)),
-		fmt.Sprintf("容器：%d 个 · 运行中 %d 个", len(p.Containers), running),
-		fmt.Sprintf("资源：CPU %.2f%% · 内存 %s", cpu, dockerx.FormatBytes(mem)),
-	}
-	if netRx+netTx > 0 {
-		lines = append(lines, fmt.Sprintf("流量：↓%s ↑%s", dockerx.FormatBytes(netRx), dockerx.FormatBytes(netTx)))
-	}
-	if read+write > 0 {
-		lines = append(lines, fmt.Sprintf("磁盘：读 %s · 写 %s", dockerx.FormatBytes(read), dockerx.FormatBytes(write)))
+		fmt.Sprintf("🏷️ 类型：%s", typeLabel(p.Type)),
+		fmt.Sprintf("📦 容器：%d 个 · 运行中 %d 个", len(p.Containers), running),
 	}
 	if p.WorkingDir != "" {
-		lines = append(lines, "目录："+p.WorkingDir)
+		lines = append(lines, "📁 目录："+p.WorkingDir)
 	}
 	if p.ConfigFile != "" {
-		lines = append(lines, "Compose："+p.ConfigFile)
+		lines = append(lines, "🧩 Compose："+p.ConfigFile)
 	}
 	lines = append(lines, "")
 
 	if len(details) == 0 {
-		lines = append(lines, "容器详情读取失败。")
+		lines = append(lines, "⚠️ 容器详情读取失败。")
 		return strings.Join(lines, "\n")
 	}
 
-	lines = append(lines, "📦 容器")
+	lines = append(lines, "📦 容器详情")
 	for _, d := range details {
 		lines = append(lines, formatContainerDetail(d)...)
 	}
@@ -263,27 +244,27 @@ func formatContainerDetail(d dockerx.ContainerDetail) []string {
 
 	lines := []string{
 		fmt.Sprintf("%s %s", stateIcon(d.State), name),
-		fmt.Sprintf("状态：%s", state),
-		fmt.Sprintf("镜像：%s", d.Info.Image),
+		fmt.Sprintf("🚦 状态：%s", state),
+		fmt.Sprintf("🖼️ 镜像：%s", d.Info.Image),
 	}
 	if d.State == "running" {
-		lines = append(lines, fmt.Sprintf("占用：CPU %.2f%% · 内存 %s", d.CPUPercent, dockerx.FormatBytes(d.Memory)))
+		lines = append(lines, fmt.Sprintf("📊 占用：CPU %.2f%% · 内存 %s", d.CPUPercent, dockerx.FormatBytes(d.Memory)))
 	}
 	if d.Ports != "-" {
-		lines = append(lines, "端口："+d.Ports)
+		lines = append(lines, "🌐 端口："+d.Ports)
 	}
 	if d.State == "running" && d.NetRx+d.NetTx > 0 {
-		lines = append(lines, fmt.Sprintf("网络：↓%s ↑%s", dockerx.FormatBytes(d.NetRx), dockerx.FormatBytes(d.NetTx)))
+		lines = append(lines, fmt.Sprintf("📡 网络：↓%s ↑%s", dockerx.FormatBytes(d.NetRx), dockerx.FormatBytes(d.NetTx)))
 	}
 	if d.State == "running" && d.BlockRead+d.BlockWrite > 0 {
-		lines = append(lines, fmt.Sprintf("磁盘：读 %s · 写 %s", dockerx.FormatBytes(d.BlockRead), dockerx.FormatBytes(d.BlockWrite)))
+		lines = append(lines, fmt.Sprintf("💾 磁盘：读 %s · 写 %s", dockerx.FormatBytes(d.BlockRead), dockerx.FormatBytes(d.BlockWrite)))
 	}
-	meta := []string{fmt.Sprintf("ID %s", shortID(d.Info.ID))}
+	meta := []string{fmt.Sprintf("🆔 ID：%s", shortID(d.Info.ID))}
 	if d.Restarts > 0 {
-		meta = append(meta, fmt.Sprintf("重启 %d", d.Restarts))
+		meta = append(meta, fmt.Sprintf("🔁 重启：%d", d.Restarts))
 	}
 	if d.Started != "-" {
-		meta = append(meta, "启动 "+d.Started)
+		meta = append(meta, "⏱️ 启动："+d.Started)
 	}
 	lines = append(lines, strings.Join(meta, " · "))
 	lines = append(lines, "")
