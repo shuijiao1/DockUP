@@ -19,6 +19,8 @@
 - **Checks all running containers by default**
 - **Checks every 12 hours by default**
 - **Telegram button-based Docker management panel**
+- **Supports server + remote Agent mode for multiple VPS hosts**
+- **Remote Agents also join the 12-hour automatic update check and notify through the server Telegram bot**
 - **Detects Docker containers and Compose projects**
 - **Manually checks one project and updates immediately**
 - **Supports start / stop / restart / delete with confirmation**
@@ -29,6 +31,7 @@
 - **Cleans up old images by default after approved successful updates**
 - **DockUP also checks and updates itself through a temporary helper container**
 
+DockUP does not provide a web UI, Slack/email/Teams notifications, or volume deletion. Automatic and manual checks both use Telegram approval buttons when updates are found. Remote VPS hosts connect through **Agents that actively dial back to the server**, so remote hosts do not need to expose an Agent management port. The server checks both local Docker and all remote Agents with the same `CHECK_INTERVAL`; default is 12 hours.
 ---
 
 ## 🚀 Quick Start
@@ -80,6 +83,45 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
+
+---
+
+## 🌐 Remote VPS Management
+
+DockUP supports a **server + agent** mode:
+
+- **server**: the Telegram control plane for menus, notifications, and operations
+- **agent**: installed on each VPS and only manages local Docker / Compose
+
+
+### Add servers from Telegram
+
+After the first deployment, DockUP manages only the local host by default. Open the Telegram main menu and click **➕ Add Server**:
+
+1. Send a server name; or send the server IP directly and it will be used as the default name
+2. The bot will generate a Docker Compose install command
+3. Run the command on the target server; the Agent will actively connect back to the server
+4. The bot will notify when pairing succeeds, and the host appears under **🌐 Remote VPS**
+
+Paired servers are persisted in `DOCKUP_DATA`, default `/data/dockup.json`.
+
+### Optional static remote VPS configuration
+
+Telegram pairing is the recommended path. You can also preconfigure remote Agents in the server `.env`:
+
+```env
+DOCKUP_MODE=server
+DOCKUP_PUBLIC_URL=http://your-server-ip-or-domain:8748
+DOCKUP_AGENTS=vps1||VPS-1|one_token,vps2||VPS-2|another_token
+```
+
+`DOCKUP_AGENTS` format:
+
+```text
+id|agent_url|display_name|token
+```
+
+For active reverse Agent mode, `agent_url` may be empty. The legacy passive HTTP Agent mode remains compatible when a URL is provided. Separate multiple Agents with commas.
 
 ---
 

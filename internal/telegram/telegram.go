@@ -22,6 +22,7 @@ type Callback struct {
 	ID        string
 	Data      string
 	MessageID int64
+	Text      string
 }
 
 type Button struct {
@@ -98,7 +99,8 @@ func (b *Bot) SetCommands(ctx context.Context) error {
 
 func MainMenuKeyboard() map[string]any {
 	return Keyboard([][]Button{
-		{{Text: "🐳 Docker 管理", Data: "home"}},
+		{{Text: "🐳 本机 Docker", Data: "home"}, {Text: "➕ 添加服务器", Data: "addserver"}},
+		{{Text: "🌐 远程 VPS", Data: "agents"}},
 		{{Text: "检查全部更新", Data: "checkall"}, {Text: "设置间隔", Data: "settings"}},
 	})
 }
@@ -202,12 +204,14 @@ func (b *Bot) PollCallbacks(ctx context.Context, out chan<- Callback) error {
 			}
 			if u.Message != nil {
 				cmd := normalizeCommand(u.Message.Text)
+				data := "msg"
 				if cmd != "" {
-					select {
-					case out <- Callback{Data: "cmd:" + cmd, MessageID: u.Message.MessageID}:
-					case <-ctx.Done():
-						return ctx.Err()
-					}
+					data = "cmd:" + cmd
+				}
+				select {
+				case out <- Callback{Data: data, MessageID: u.Message.MessageID, Text: u.Message.Text}:
+				case <-ctx.Done():
+					return ctx.Err()
 				}
 			}
 		}

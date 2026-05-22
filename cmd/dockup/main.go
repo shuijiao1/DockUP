@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/shuijiao1/DockUP/internal/agent"
 	"github.com/shuijiao1/DockUP/internal/config"
 	"github.com/shuijiao1/DockUP/internal/dockerx"
+	"github.com/shuijiao1/DockUP/internal/reverse"
 	"github.com/shuijiao1/DockUP/internal/telegram"
 	"github.com/shuijiao1/DockUP/internal/updater"
 )
@@ -35,6 +38,32 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if config.ModeFromEnv() == "pair" {
+		if err := agent.Pair(ctx, cfg.PublicURL, os.Getenv("DOCKUP_PAIR_ID"), cfg.AgentToken); err != nil {
+			log.Error("DockUP pair failed", "error", err)
+			os.Exit(1)
+		}
+		log.Info("DockUP pair request sent")
+		return
+	}
+
+	if config.ModeFromEnv() == "agent" {
+		if cfg.PublicURL != "" {
+			log.Info("DockUP booting in reverse agent mode", "version", version, "center", cfg.PublicURL)
+			if err := reverse.NewAgent(docker, cfg.PublicURL, cfg.AgentToken, cfg.LocalName, log).Run(ctx); err != nil && err != context.Canceled {
+				log.Error("DockUP reverse agent stopped with error", "error", err)
+				os.Exit(1)
+			}
+			return
+		}
+		log.Info("DockUP booting in agent mode", "version", version, "listen", cfg.AgentListen)
+		if err := agent.NewServer(docker, cfg.AgentToken, cfg.LocalName, log).Start(ctx, cfg.AgentListen); err != nil && err != context.Canceled {
+			log.Error("DockUP agent stopped with error", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if targetID := os.Getenv("DOCKUP_APPLY_CONTAINER_ID"); targetID != "" {
 		imageRef := os.Getenv("DOCKUP_APPLY_IMAGE_REF")
@@ -62,7 +91,20 @@ func main() {
 		}
 	}
 
-	app := updater.New(cfg, docker, bot, log)
+	store, _ := config.NewStore(cfg.DataPath)
+	hub := reverse.NewHub(store, log)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/reverse/connect", hub.Handle)
+	srv := &http.Server{Addr: cfg.AgentListen, Handler: mux}
+	go func() {
+		log.Info("DockUP reverse hub listening", "listen", cfg.AgentListen)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Warn("reverse hub stopped", "error", err)
+		}
+	}()
+	go func() { <-ctx.Done(); _ = srv.Shutdown(context.Background()) }()
+
+	app := updater.New(cfg, docker, bot, log, store, hub)
 	if err := app.Run(ctx); err != nil && err != context.Canceled {
 		log.Error("DockUP stopped with error", "error", err)
 		os.Exit(1)

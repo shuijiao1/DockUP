@@ -8,7 +8,17 @@ services:
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_CHAT_ID: ${TG_CHAT_ID}
       CHECK_INTERVAL: ${CHECK_INTERVAL:-12h}
+      CHECK_LOCAL: ${CHECK_LOCAL:-true}
       CLEANUP: ${CLEANUP:-true}
       SETUP_TEST_MESSAGE: ${SETUP_TEST_MESSAGE:-true}
+      DOCKUP_MODE: ${DOCKUP_MODE:-server}
+      DOCKUP_AGENT_TOKEN: ${DOCKUP_AGENT_TOKEN:-}
+      DOCKUP_PUBLIC_URL: ${DOCKUP_PUBLIC_URL:-}
+      DOCKUP_AGENTS: ${DOCKUP_AGENTS:-}
+      AGENT_LISTEN: ${AGENT_LISTEN:-:8748}
+      DOCKUP_NAME: ${DOCKUP_NAME:-DockUP}
+    ports:
+      - "${AGENT_PORT:-8748}:8748"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data

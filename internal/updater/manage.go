@@ -3,9 +3,12 @@ package updater
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/shuijiao1/DockUP/internal/agent"
+	"github.com/shuijiao1/DockUP/internal/config"
 	"github.com/shuijiao1/DockUP/internal/dockerx"
 	"github.com/shuijiao1/DockUP/internal/telegram"
 )
@@ -15,9 +18,36 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 	if strings.HasPrefix(data, "cmd:") {
 		return u.handleCommand(ctx, cb, strings.TrimPrefix(data, "cmd:"))
 	}
+	if data == "msg" {
+		return u.handleTextMessage(ctx, cb)
+	}
 	if data == "home" {
 		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
 		u.showHome(ctx, cb.MessageID)
+		return true
+	}
+	if data == "addserver" {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
+		u.startAddServer(ctx, cb.MessageID)
+		return true
+	}
+	if data == "agents" {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
+		u.showAgents(ctx, cb.MessageID)
+		return true
+	}
+	if strings.HasPrefix(data, "agent:") {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
+		u.showAgent(ctx, cb.MessageID, strings.TrimPrefix(data, "agent:"))
+		return true
+	}
+	if strings.HasPrefix(data, "rproject:") {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
+		u.showRemoteProject(ctx, cb.MessageID, strings.TrimPrefix(data, "rproject:"))
+		return true
+	}
+	if strings.HasPrefix(data, "rpstart:") || strings.HasPrefix(data, "rpstop:") || strings.HasPrefix(data, "rprestart:") {
+		u.handleRemoteProjectAction(ctx, cb)
 		return true
 	}
 	if data == "main" {
@@ -111,7 +141,7 @@ func (u *Updater) showMainMenu(ctx context.Context, messageID int64) {
 }
 
 func mainMenuText(interval time.Duration) string {
-	return fmt.Sprintf("🐳 DockUP\n\n轻量 Telegram Docker 管理工具\n自动检查间隔：%s\n\n可查看 Docker / Compose 项目、手动检查更新、启动/停止/重启、二次确认删除。", interval.String())
+	return fmt.Sprintf("🐳 DockUP\n\n轻量 Telegram Docker 管理工具\n自动检查间隔：%s\n\n默认只管理本机；可通过“添加服务器”生成安装命令，把其他 VPS 接入后统一管理和通知。", interval.String())
 }
 
 func (u *Updater) sendHome(ctx context.Context) {
@@ -155,9 +185,293 @@ func (u *Updater) showHome(ctx context.Context, messageID int64) {
 	if len(projectButtons) > 0 {
 		rows = append(rows, projectButtons)
 	}
+	rows = append(rows, []telegram.Button{{Text: "➕ 添加服务器", Data: "addserver"}, {Text: "🌐 远程 VPS", Data: "agents"}})
 	rows = append(rows, []telegram.Button{{Text: "检查全部更新", Data: "checkall"}, {Text: "设置间隔", Data: "settings"}})
 	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
 	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, text, telegram.Keyboard(rows))
+}
+
+func (u *Updater) refreshAgents() {
+	if u.store == nil || u.agents == nil {
+		return
+	}
+	agents := append([]config.AgentConfig(nil), u.cfg.Agents...)
+	agents = append(agents, u.store.Agents()...)
+	u.agents.SetAgents(agents)
+}
+
+func (u *Updater) startAddServer(ctx context.Context, messageID int64) {
+	u.mu.Lock()
+	u.addStates[messageID] = addServerState{Step: "name", MessageID: messageID, CreatedAt: time.Now()}
+	u.mu.Unlock()
+	text := "➕ 添加服务器\n\n请发送服务器名称。\n\n不想填名称就直接发送目标服务器 IP，之后会默认用 IP 作为名称。"
+	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, text, telegram.Keyboard([][]telegram.Button{{{Text: "取消", Data: "cancel"}}}))
+}
+
+func (u *Updater) handleTextMessage(ctx context.Context, cb telegram.Callback) bool {
+	u.mu.Lock()
+	var key int64
+	var st addServerState
+	ok := false
+	for k, v := range u.addStates {
+		key, st, ok = k, v, true
+		break
+	}
+	u.mu.Unlock()
+	if !ok {
+		return false
+	}
+	text := strings.TrimSpace(cb.Text)
+	if text == "" {
+		_, _ = u.bot.SendMessage(ctx, "内容为空，重新发送一下。", nil)
+		return true
+	}
+	if strings.HasPrefix(text, "/") {
+		return false
+	}
+	if st.Step == "name" {
+		st.Name = text
+		st.Step = "url"
+		u.mu.Lock()
+		u.addStates[key] = st
+		u.mu.Unlock()
+		_, _ = u.bot.SendMessage(ctx, "继续发送服务器 IP 或 Agent 访问地址。\n\n例如：\n1.2.3.4\n或\nhttp://1.2.3.4:8748", nil)
+		return true
+	}
+	if st.Step == "url" {
+		if u.store == nil {
+			_, _ = u.bot.SendMessage(ctx, "❌ 存储未初始化，无法添加服务器。", nil)
+			return true
+		}
+		agentURL := config.BuildAgentURL(text)
+		name := st.Name
+		if name == "" {
+			name = text
+		}
+		pair, err := u.store.CreatePair(name, agentURL, 30*time.Minute)
+		if err != nil {
+			_, _ = u.bot.SendMessage(ctx, "❌ 添加失败："+err.Error(), nil)
+			return true
+		}
+		u.mu.Lock()
+		delete(u.addStates, key)
+		u.mu.Unlock()
+		install := u.installCommand(pair)
+		msgID, _ := u.bot.SendMessage(ctx, fmt.Sprintf("🧩 服务器：%s\n地址：%s\n\n在目标服务器执行下面命令完成接入：\n\n%s\n\n有效期：30 分钟。对接成功后我会通知。", pair.Name, pair.URL, install), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		_ = u.store.SetPairMessage(pair.ID, msgID)
+		return true
+	}
+	return false
+}
+
+func (u *Updater) installCommand(pair config.PendingPair) string {
+	image := "ghcr.io/shuijiao1/dockup:latest"
+	center := u.cfg.PublicURL
+	if center == "" {
+		center = "http://<中心端IP或域名>:8748"
+	}
+	return fmt.Sprintf("```bash\nmkdir -p /opt/dockup && cd /opt/dockup && cat > docker-compose.yml <<'YAML'\nservices:\n  dockup-agent:\n    image: %s\n    container_name: dockup-agent\n    restart: unless-stopped\n    environment:\n      TZ: Asia/Shanghai\n      DOCKUP_MODE: agent\n      DOCKUP_NAME: %s\n      DOCKUP_PUBLIC_URL: %s\n      DOCKUP_AGENT_TOKEN: %s\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\nYAML\ndocker compose pull && docker compose up -d\n```", image, yamlQuote(pair.Name), yamlQuote(center), yamlQuote(pair.Token))
+}
+
+func yamlQuote(s string) string {
+	return strconv.Quote(s)
+}
+
+func (u *Updater) showAgents(ctx context.Context, messageID int64) {
+	u.refreshAgents()
+	if u.agents == nil || !u.agents.Enabled() {
+		rows := [][]telegram.Button{{{Text: "➕ 添加服务器", Data: "addserver"}}, {{Text: "本机 Docker", Data: "home"}, {Text: "返回主界面", Data: "main"}}}
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "🌐 远程 VPS\n\n还没有添加服务器。点击“添加服务器”生成安装命令。", telegram.Keyboard(rows))
+		return
+	}
+	agents := u.agents.Agents()
+	lines := []string{"🌐 远程 VPS", "", fmt.Sprintf("已配置：%d 台", len(agents)), ""}
+	rows := [][]telegram.Button{}
+	for _, a := range agents {
+		var snap agent.Snapshot
+		var err error
+		if a.Mode == "reverse" && u.reverse != nil {
+			snap, err = u.reverse.Snapshot(ctx, a)
+		} else {
+			_, snap, err = u.agents.Snapshot(ctx, a.ID)
+		}
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("🔴 %s：连接失败", a.Name), "错误："+err.Error(), "")
+		} else {
+			lines = append(lines, fmt.Sprintf("🟢 %s：%d 个项目 · %d/%d 容器运行中", a.Name, snap.Totals.Projects, snap.Totals.Running, snap.Totals.Containers))
+		}
+		rows = append(rows, []telegram.Button{{Text: a.Name, Data: "agent:" + a.ID}})
+	}
+	rows = append(rows, []telegram.Button{{Text: "➕ 添加服务器", Data: "addserver"}, {Text: "刷新", Data: "agents"}})
+	rows = append(rows, []telegram.Button{{Text: "本机 Docker", Data: "home"}})
+	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
+	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, strings.Join(lines, "\n"), telegram.Keyboard(rows))
+}
+
+func (u *Updater) showAgent(ctx context.Context, messageID int64, agentID string) {
+	agentCfg, ok := u.findAgent(agentID)
+	if !ok {
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 远程 VPS 不存在", telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		return
+	}
+	var snap agent.Snapshot
+	var err error
+	if agentCfg.Mode == "reverse" && u.reverse != nil {
+		snap, err = u.reverse.Snapshot(ctx, agentCfg)
+	} else {
+		_, snap, err = u.agents.Snapshot(ctx, agentID)
+	}
+	if err != nil {
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 获取远程 VPS 失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		return
+	}
+	lines := []string{fmt.Sprintf("🌐 %s", snap.Name), "", fmt.Sprintf("项目：%d 个 · 运行中：%d/%d 个容器", snap.Totals.Projects, snap.Totals.Running, snap.Totals.Containers), "", "选择项目查看状态和操作。"}
+	rows := [][]telegram.Button{}
+	projectButtons := []telegram.Button{}
+	for _, p := range snap.Projects {
+		icon := "🐳"
+		if p.Type == "compose" {
+			icon = "📦"
+		}
+		label := fmt.Sprintf("%s %s", icon, p.Name)
+		if len(p.Containers) > 1 {
+			label = fmt.Sprintf("%s · %d", label, len(p.Containers))
+		}
+		projectButtons = append(projectButtons, telegram.Button{Text: label, Data: "rproject:" + agentID + ":" + p.Key})
+		if len(projectButtons) == 2 {
+			rows = append(rows, projectButtons)
+			projectButtons = []telegram.Button{}
+		}
+	}
+	if len(projectButtons) > 0 {
+		rows = append(rows, projectButtons)
+	}
+	rows = append(rows, []telegram.Button{{Text: "刷新", Data: "agent:" + agentID}, {Text: "返回远程列表", Data: "agents"}})
+	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
+	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, strings.Join(lines, "\n"), telegram.Keyboard(rows))
+}
+
+func (u *Updater) showRemoteProject(ctx context.Context, messageID int64, raw string) {
+	agentID, key, ok := splitRemoteKey(raw)
+	if !ok {
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 远程项目参数无效", navKeyboard())
+		return
+	}
+	agentCfg, ok := u.findAgent(agentID)
+	if !ok {
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 远程 VPS 不存在", navKeyboard())
+		return
+	}
+	var snap agent.Snapshot
+	var err error
+	if agentCfg.Mode == "reverse" && u.reverse != nil {
+		snap, err = u.reverse.Snapshot(ctx, agentCfg)
+	} else {
+		_, snap, err = u.agents.Snapshot(ctx, agentID)
+	}
+	if err != nil {
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 获取远程 VPS 失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		return
+	}
+	for _, p := range snap.Projects {
+		if p.Key == key {
+			text := formatRemoteProjectStatus(snap.Name, p)
+			rows := [][]telegram.Button{
+				{{Text: "重启", Data: "rprestart:" + agentID + ":" + key}},
+				{{Text: "启动", Data: "rpstart:" + agentID + ":" + key}, {Text: "停止", Data: "rpstop:" + agentID + ":" + key}},
+				{{Text: "返回该 VPS", Data: "agent:" + agentID}, {Text: "返回远程列表", Data: "agents"}},
+				{{Text: "返回主界面", Data: "main"}},
+			}
+			_ = u.bot.EditMessageWithKeyboard(ctx, messageID, text, telegram.Keyboard(rows))
+			return
+		}
+	}
+	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 远程项目不存在", telegram.Keyboard([][]telegram.Button{{{Text: "返回该 VPS", Data: "agent:" + agentID}, {Text: "返回远程列表", Data: "agents"}}}))
+}
+
+func formatRemoteProjectStatus(agentName string, p agent.ProjectSnapshot) string {
+	running := 0
+	healthy := 0
+	for _, d := range p.Containers {
+		if d.State == "running" {
+			running++
+		}
+		if d.Health == "healthy" {
+			healthy++
+		}
+	}
+	headStatus := "🔴 未运行"
+	if running == len(p.Containers) && running > 0 {
+		headStatus = "🟢 运行中"
+	} else if running > 0 {
+		headStatus = "🟡 部分运行"
+	}
+	if healthy > 0 && healthy == running {
+		headStatus += " · 健康"
+	}
+	lines := []string{fmt.Sprintf("🌐 %s", agentName), fmt.Sprintf("🐳 %s", p.Name), headStatus, "", "📌 概览", fmt.Sprintf("🏷️ 类型：%s", typeLabel(p.Type)), fmt.Sprintf("📦 容器：%d 个 · 运行中 %d 个", len(p.Containers), running)}
+	if p.WorkingDir != "" {
+		lines = append(lines, "📁 目录："+p.WorkingDir)
+	}
+	if p.ConfigFile != "" {
+		lines = append(lines, "🧩 Compose："+p.ConfigFile)
+	}
+	lines = append(lines, "", "📦 容器详情")
+	for _, d := range p.Containers {
+		lines = append(lines, formatContainerDetail(d)...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (u *Updater) handleRemoteProjectAction(ctx context.Context, cb telegram.Callback) {
+	parts := strings.SplitN(cb.Data, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+	actionName, raw := parts[0], parts[1]
+	agentID, key, ok := splitRemoteKey(raw)
+	if !ok {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "参数无效")
+		return
+	}
+	action := ""
+	switch actionName {
+	case "rpstart":
+		action = "start"
+	case "rpstop":
+		action = "stop"
+	case "rprestart":
+		action = "restart"
+	}
+	if action == "" {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "操作无效")
+		return
+	}
+	_ = u.bot.AnswerCallback(ctx, cb.ID, "执行中")
+	agentCfg, ok := u.findAgent(agentID)
+	if !ok {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "服务器不存在")
+		return
+	}
+	var err error
+	if agentCfg.Mode == "reverse" && u.reverse != nil {
+		err = u.reverse.ProjectAction(ctx, agentCfg, key, action)
+	} else {
+		err = u.agents.ProjectAction(ctx, agentID, key, action)
+	}
+	if err != nil {
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "❌ 远程操作失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回项目", Data: "rproject:" + agentID + ":" + key}, {Text: "返回远程列表", Data: "agents"}}}))
+		return
+	}
+	u.showRemoteProject(ctx, cb.MessageID, agentID+":"+key)
+}
+
+func splitRemoteKey(raw string) (agentID, key string, ok bool) {
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 func (u *Updater) showProject(ctx context.Context, messageID int64, key string) {

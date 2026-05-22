@@ -19,6 +19,8 @@
 - **默认检测所有运行中的容器**
 - **默认每 12 小时检查一次**
 - **Telegram 按钮式 Docker 管理面板**
+- **支持中心端 + 远程 Agent 管理多台 VPS**
+- **远程 Agent 也参与 12 小时自动更新检查，并由中心端 Telegram 通知**
 - **支持 Docker 容器和 Compose 项目识别**
 - **可手动检查单个项目更新并立即更新**
 - **支持启动 / 停止 / 重启 / 二次确认删除**
@@ -29,6 +31,7 @@
 - **点击更新成功后默认清理旧镜像**
 - **DockUP 本体也会检测更新，并通过临时容器执行自更新**
 
+DockUP 不做 Web 面板、不做 Slack/邮件/Teams，也不删除 volume；自动检查和手动检查发现更新后都会给出 Telegram 按钮，是否更新由你确认。远程 VPS 通过 **Agent 主动连接中心端** 接入，不需要在远程服务器暴露 Agent 管理端口；中心端会按同一个 `CHECK_INTERVAL` 检查本机和所有远程 Agent，默认 12 小时。
 ---
 
 ## 🚀 快速开始
@@ -83,17 +86,66 @@ services:
 
 ---
 
+## 🌐 管理远程 VPS
+
+DockUP 支持 **server + agent** 模式：
+
+- **server**：Telegram 中心端，负责菜单、通知和管理入口
+- **agent**：安装在每台 VPS 上，只管理本机 Docker / Compose
+
+
+### Telegram 添加服务器
+
+首次部署后默认只有本机。进入 Telegram 主菜单点击 **➕ 添加服务器**：
+
+1. 发送服务器名称；如果不想填名称，直接发送目标服务器 IP，名称会默认使用 IP
+2. Bot 会生成一条 Docker Compose 安装命令
+3. 在目标服务器执行命令后，Agent 会主动连接中心端
+4. 接入成功后 Bot 会通知，并可在 **🌐 远程 VPS** 页面查看和管理
+
+接入后的服务器会持久化到 `DOCKUP_DATA`，默认 `/data/dockup.json`。
+
+> 远程 Agent 默认不映射管理端口，只通过 `DOCKUP_PUBLIC_URL` 主动连接中心端 `/v1/reverse/connect`。中心端所在机器需要能被远程 Agent 访问到 `AGENT_LISTEN` 对应端口。
+
+### 静态配置远程 VPS（可选）
+
+除了 Telegram 添加，也可以在中心端 `.env` 里预置远程 Agent：
+
+```env
+DOCKUP_MODE=server
+DOCKUP_PUBLIC_URL=http://你的中心端IP或域名:8748
+DOCKUP_AGENTS=vps1||VPS-1|单机Token,vps2||VPS-2|另一个单机Token
+```
+
+`DOCKUP_AGENTS` 格式：
+
+```text
+id|agent_url|显示名|token
+```
+
+主动连接模式下 `agent_url` 可以留空；旧的被动 HTTP Agent 仍可填写 URL 兼容使用。多个 Agent 用英文逗号分隔。
+
+---
+
 ## ⚙️ 配置说明
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | 空 | Telegram Bot Token；为空则不发送通知 |
 | `TG_CHAT_ID` | 空 | Telegram Chat ID；为空则不发送通知 |
-| `CHECK_INTERVAL` | `12h` | 检查间隔，支持 Go duration，例如 `30m`、`1h`、`12h` |
+| `CHECK_INTERVAL` | `12h` | 检查间隔，支持 Go duration，例如 `30m`、`1h`、`12h`；设为 `0` 可关闭自动更新检查 |
+| `CHECK_LOCAL` | `true` | 中心端是否检查本机 Docker；本地/通知测试可临时设为 `false` |
 | `TZ` | `Asia/Shanghai` | 时区 |
 | `CLEANUP` | `true` | 点击更新且成功后是否尝试清理旧镜像 |
 | `RUN_ONCE` | `false` | 只运行一轮检查后退出 |
 | `UPDATE_TIMEOUT` | `10m` | 单轮更新超时时间 |
+| `DOCKUP_MODE` | `server` | 运行模式：`server` 或 `agent` |
+| `DOCKUP_AGENT_TOKEN` | 空 | Agent Bearer Token；通过 Telegram 添加服务器时会自动生成单机 Token |
+| `DOCKUP_PUBLIC_URL` | 空 | 中心端可访问地址；Agent 主动连接中心端时必填，例如 `http://1.2.3.4:8748` |
+| `DOCKUP_AGENTS` | 空 | 中心端预置远程 Agent 列表，格式：`id|url|显示名|token`，主动连接模式下 `url` 可留空 |
+| `AGENT_LISTEN` | `:8748` | 中心端 reverse hub / 旧 Agent HTTP API 监听地址 |
+| `AGENT_PORT` | `8748` | Docker Compose 映射到宿主机的中心端监听端口 |
+| `DOCKUP_DATA` | `/data/dockup.json` | 中心端持久化服务器列表和配对信息 |
 | `SETUP_TEST_MESSAGE` | `true` | 启动、重启或更新后是否发送入口消息 |
 
 ---
