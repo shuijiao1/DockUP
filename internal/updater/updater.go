@@ -266,6 +266,7 @@ func (u *Updater) CheckOnceSummary(parent context.Context, manual bool) (CheckSu
 	summary.Errors += remote.Errors
 	summary.Skipped = append(summary.Skipped, remote.Skipped...)
 	summary.UpdateTokens = append(summary.UpdateTokens, remote.UpdateTokens...)
+	summary.Updates = append(summary.Updates, remote.Updates...)
 	if !manual {
 		summary.PendingUpdateTokens, summary.PendingLocalUpdates, summary.PendingRemoteUpdates = u.pendingUpdateSnapshot()
 	}

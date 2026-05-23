@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.10
+
+- Fixed manual “check all” result buttons so remote updates are included in the per-item and batch update buttons, matching the reported update count.
+
 ## v0.6.9
 
 - Rebuilt release for manual update verification. No runtime deployment is performed automatically; use DockUP to update local and remote agents manually.
