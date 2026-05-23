@@ -22,7 +22,9 @@
 - **Supports server + remote Agent mode for multiple VPS hosts**
 - **Remote Agents also join the 12-hour automatic update check and notify through the server Telegram bot**
 - **Detects Docker containers and Compose projects**
-- **Manually checks one project and updates immediately**
+- **Manually checks all containers / one remote VPS / one project and updates immediately**
+- **Manual “check all” always performs a fresh full scan, independent of previous notifications, ignored items, or pending queues**
+- **Check results support both batch update and per-item update buttons**
 - **Supports start / stop / restart / project deletion with confirmation**
 - **Supports remote VPS removal: shows an Agent uninstall command, then removes the local record after the Agent is offline**
 - **Automatically backs up the config before removing remote VPS records**
@@ -32,7 +34,8 @@
 - **Attempts rollback if an approved update fails to start**
 - **Waits for Docker health checks**
 - **Cleans up old images by default after approved successful updates**
-- **DockUP also checks and updates itself through a temporary helper container**
+- **Detail pages show image versions, preferring semantic versions such as `v0.6.13` and falling back to short image IDs only when no version is available**
+- **DockUP also checks and updates itself through a temporary helper container; remote Agent self-updates use a helper to avoid disconnecting mid-request**
 
 DockUP does not provide a web UI, Slack/email/Teams notifications, or volume deletion. Automatic and manual checks both use Telegram approval buttons when updates are found. Remote VPS hosts connect through **Agents that actively dial back to the server**, so remote hosts do not need to expose an Agent management port. The server checks both local Docker and all remote Agents with the same `CHECK_INTERVAL`; default is 12 hours.
 
@@ -160,11 +163,19 @@ For active reverse Agent mode, `agent_url` may be empty. The legacy passive HTTP
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | empty | Telegram Bot Token; notifications are disabled if empty |
 | `TG_CHAT_ID` | empty | Telegram Chat ID; notifications are disabled if empty; commands and button callbacks are also authorized against this ID |
-| `CHECK_INTERVAL` | `12h` | Check interval, Go duration format such as `30m`, `1h`, `12h` |
+| `CHECK_INTERVAL` | `12h` | Check interval, Go duration format such as `30m`, `1h`, `12h`; set to `0` to disable automatic update checks |
+| `CHECK_LOCAL` | `true` | Whether the server checks local Docker containers; useful for remote-only or notification tests |
 | `TZ` | `Asia/Shanghai` | Time zone |
 | `CLEANUP` | `true` | Try to remove old images after approved successful updates |
 | `RUN_ONCE` | `false` | Run one check and exit |
 | `UPDATE_TIMEOUT` | `10m` | Timeout for one update pass |
+| `DOCKUP_MODE` | `server` | Run mode: `server` or `agent` |
+| `DOCKUP_AGENT_TOKEN` | empty | Agent Bearer Token; Telegram pairing generates one token per server automatically |
+| `DOCKUP_PUBLIC_URL` | empty | Public server URL for reverse Agents, for example `http://1.2.3.4:8748` |
+| `DOCKUP_AGENTS` | empty | Optional static Agent list, format: `id|url|display_name|token`; `url` may be empty for reverse mode |
+| `AGENT_LISTEN` | `:8748` | Server reverse hub / legacy Agent HTTP API listen address |
+| `AGENT_PORT` | `8748` | Docker Compose host port for the server reverse hub |
+| `DOCKUP_DATA` | `/data/dockup.json` | Persistent server list and pairing state |
 | `SETUP_TEST_MESSAGE` | `true` | Send an entry message after start, restart, or update |
 
 ---
@@ -172,6 +183,8 @@ For active reverse Agent mode, `agent_url` may be empty. The legacy passive HTTP
 ## 💬 Telegram Interaction
 
 After every start, restart, or update, DockUP sends an entry message for the Docker management panel. When an update is found, DockUP sends one Telegram message per container with two buttons: `Update` and `Ignore`. No-update runs are logged only.
+
+Manual **Check All Updates** performs a fresh scan of all local containers and online remote Agents. Previous `Ignore` clicks or pending notifications do not affect this manual result. The result page shows local / remote update counts and provides both `Update all` and per-item update buttons.
 
 The command menu is registered automatically:
 
@@ -186,9 +199,9 @@ The command menu is registered automatically:
 The management panel supports:
 
 - Listing Docker / Compose projects
-- Viewing project status, images, ports, CPU, memory, network, and block I/O
+- Viewing project status, images, image version, ports, CPU, memory, network, and block I/O
 - Automatically registers Telegram menu commands: `/start`, `/docker`, `/settings`, and `/checkall`
-- Manually checking one project and updating immediately
+- Manually checking all containers, one remote VPS, or one project, then updating individually or in batch
 - Starting, stopping, and restarting projects
 - Delete confirmation before removing containers
 - Remote VPS removal with a fixed uninstall command and local record deletion after the Agent is offline
@@ -202,9 +215,10 @@ For each automatic check, DockUP:
 
 1. Lists all running containers
 2. Pulls the current `image:tag` used by each container
-3. Compares the image ID before and after pulling, and tries to resolve a semantic tag from the registry digest
-4. If the image changed:
-   - Sends a per-container Telegram message with buttons, preferring tag-based versions and falling back to short image IDs
+3. Compares the running container image ID with the pulled target tag image ID, so pulling `latest` ahead of time does not hide pending updates
+4. Tries to resolve a semantic version from image labels or registry digests; falls back to a short image ID when unavailable
+5. If the image changed:
+   - Sends a per-container Telegram message with buttons, preferring versions like `vX.Y.Z` and falling back to short image IDs
    - After `Update` is clicked, stops the old container
    - Renames it as a backup container
    - Creates a new container with the original configuration
@@ -212,7 +226,9 @@ For each automatic check, DockUP:
    - Waits for health checks to become healthy
    - Removes the backup container after success
    - Optionally removes the old image
-5. If the new container fails to start or becomes unhealthy, DockUP attempts to remove it and restore the old container
+6. If the new container fails to start or becomes unhealthy, DockUP attempts to remove it and restore the old container
+
+Remote Agents connect back to the server through a reverse connection. For normal remote containers, the server waits for the Agent result. When the target is the remote `dockup-agent` container itself, the Agent starts a temporary helper for the self-update and returns immediately, avoiding a mid-request disconnect that would leave Telegram stuck on “updating”.
 
 ---
 
@@ -225,6 +241,7 @@ That means:
 - A bad upstream image may still break your service if you approve the update
 - Core services such as databases, reverse proxies, and dashboards should be reviewed before clicking Update
 - Mounting `/var/run/docker.sock` gives DockUP Docker management access on the host
+- With `latest` images, DockUP decides updates by the running container's actual image ID, not merely whether the local tag has already been pulled
 - Telegram commands and button callbacks are accepted only from the configured `TG_CHAT_ID`
 - Removing a remote VPS does not execute arbitrary remote commands; DockUP only shows a fixed uninstall command and the user runs it on the remote host
 
