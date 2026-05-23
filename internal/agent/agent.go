@@ -201,7 +201,7 @@ func (s *Server) checkUpdates(ctx context.Context) ([]UpdateInfo, error) {
 	}
 	updates := []UpdateInfo{}
 	for _, c := range containers {
-		oldVersion, err := s.docker.InspectImageVersion(ctx, c.Image)
+		oldVersion, err := s.docker.InspectImageVersionByID(ctx, c.ImageID)
 		if err != nil {
 			s.log.Warn("remote update check inspect failed", "container", c.Name, "image", c.Image, "error", err)
 			continue

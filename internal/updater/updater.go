@@ -248,7 +248,7 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context) error {
 }
 
 func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) error {
-	oldVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
+	oldVersion, err := u.docker.InspectImageVersionByID(ctx, c.ImageID)
 	if err != nil {
 		return err
 	}

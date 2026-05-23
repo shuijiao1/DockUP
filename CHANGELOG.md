@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.3
+
+- Fixed update detection after manually checking `latest` images. DockUP now compares the running container image ID against the pulled tag image ID, so repeated checks still show an update until the container is actually recreated.
+
 ## v0.6.2
 
 - Added manual update checks to remote VPS pages and remote project pages.

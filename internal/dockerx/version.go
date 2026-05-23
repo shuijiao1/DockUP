@@ -74,6 +74,21 @@ func (c *Client) InspectImageVersion(ctx context.Context, ref string) (ImageVers
 	return v, nil
 }
 
+func (c *Client) InspectImageVersionByID(ctx context.Context, imageID string) (ImageVersion, error) {
+	imageID = strings.TrimSpace(imageID)
+	if imageID == "" {
+		return ImageVersion{}, fmt.Errorf("empty image id")
+	}
+	v, err := c.InspectImageVersion(ctx, imageID)
+	if err != nil {
+		return v, err
+	}
+	if v.ID == "" {
+		v.ID = imageID
+	}
+	return v, nil
+}
+
 func (c *Client) LookupVersionTag(ctx context.Context, ref, digest string) (string, error) {
 	repo, err := dockerHubRepo(ref)
 	if err != nil {
