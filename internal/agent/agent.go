@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -150,12 +151,31 @@ func (s *Server) handleContainerUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "image is required", http.StatusBadRequest)
 		return
 	}
+	if isCurrentContainerID(id) {
+		helperID, err := s.docker.RunSelfUpdateHelper(r.Context(), req.Image, id, req.Image, req.Cleanup)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "self_update": true, "helper_id": helperID})
+		return
+	}
 	oldID, newID, err := s.docker.UpdateContainer(r.Context(), id, req.Image, req.Cleanup)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "old_id": oldID, "new_id": newID})
+}
+
+func isCurrentContainerID(id string) bool {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return false
+	}
+	id = normalizeID(id)
+	hostname = normalizeID(hostname)
+	return id != "" && hostname != "" && strings.HasPrefix(id, hostname)
 }
 
 func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {

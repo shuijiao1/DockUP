@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.11
+
+- Fixed remote reverse Agent self-updates. When an Agent is asked to update its own `dockup-agent` container, it now starts a self-update helper and returns immediately instead of stopping itself mid-request and making the center appear stuck.
+
 ## v0.6.10
 
 - Fixed manual “check all” result buttons so remote updates are included in the per-item and batch update buttons, matching the reported update count.
