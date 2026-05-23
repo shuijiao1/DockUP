@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.2
+
+- Added manual update checks to remote VPS pages and remote project pages.
+- Remote manual checks now reuse the existing update confirmation flow, so updates can be applied from the remote check result.
+
 ## v0.6.1
 
 - Fixed preconfigured reverse Agents using `DOCKUP_AGENTS` with an empty URL, e.g. `id||Name|token`.
