@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.5
+
+- Added a batch update button to the “check all” result when updates are found.
+- Improved check summaries by separating non-pullable local images from real check failures and listing skipped local-only images.
+- Fixed local manual project update checks to compare against the running container image ID, matching the automatic check behavior.
+
 ## v0.6.4
 
 - Improved manual “check all” feedback to show how many local containers and remote VPS were checked, how many updates were found, and whether any checks failed.

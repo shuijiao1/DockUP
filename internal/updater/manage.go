@@ -86,7 +86,7 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 				_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
 			}
-			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, checkAllDoneText(summary), navKeyboard())
+			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, checkAllDoneText(summary), u.checkAllDoneKeyboard(summary))
 		}()
 		return true
 	}
@@ -111,6 +111,10 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 	}
 	if strings.HasPrefix(data, "pupdate:") {
 		u.handleManualUpdate(ctx, cb, strings.TrimPrefix(data, "pupdate:"))
+		return true
+	}
+	if strings.HasPrefix(data, "batchupdate:") {
+		u.handleBatchUpdate(ctx, cb, strings.TrimPrefix(data, "batchupdate:"))
 		return true
 	}
 	if strings.HasPrefix(data, "pstart:") || strings.HasPrefix(data, "pstop:") || strings.HasPrefix(data, "prestart:") {
@@ -150,7 +154,7 @@ func (u *Updater) handleCommand(ctx context.Context, cb telegram.Callback, cmd s
 				_ = u.bot.EditMessageWithKeyboard(ctx, msg, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
 			}
-			_ = u.bot.EditMessageWithKeyboard(ctx, msg, checkAllDoneText(summary), navKeyboard())
+			_ = u.bot.EditMessageWithKeyboard(ctx, msg, checkAllDoneText(summary), u.checkAllDoneKeyboard(summary))
 		}()
 	}
 	return true
@@ -159,14 +163,37 @@ func (u *Updater) handleCommand(ctx context.Context, cb telegram.Callback, cmd s
 func checkAllDoneText(summary CheckSummary) string {
 	lines := []string{"✅ 全部容器检查完成", "", fmt.Sprintf("已检查：本机 %d 个容器 · 远程 %d 台 VPS", summary.LocalChecked, summary.RemoteChecked)}
 	if summary.TotalUpdates() > 0 {
-		lines = append(lines, fmt.Sprintf("发现更新：%d 个（本机 %d · 远程 %d）", summary.TotalUpdates(), summary.LocalUpdates, summary.RemoteUpdates), "已单独发送更新按钮通知。")
+		lines = append(lines, fmt.Sprintf("发现更新：%d 个（本机 %d · 远程 %d）", summary.TotalUpdates(), summary.LocalUpdates, summary.RemoteUpdates), "可点下方按钮批量更新，也可以用单独通知逐个更新。")
 	} else {
 		lines = append(lines, "没有发现更新。")
 	}
+	if len(summary.Skipped) > 0 {
+		lines = append(lines, "", fmt.Sprintf("跳过：%d 个", len(summary.Skipped)))
+		for i, item := range summary.Skipped {
+			if i >= 5 {
+				lines = append(lines, fmt.Sprintf("…还有 %d 个", len(summary.Skipped)-i))
+				break
+			}
+			lines = append(lines, "• "+item)
+		}
+	}
 	if summary.Errors > 0 {
-		lines = append(lines, fmt.Sprintf("检查失败/跳过：%d 个，详情看日志。", summary.Errors))
+		lines = append(lines, fmt.Sprintf("检查失败：%d 个，详情看日志。", summary.Errors))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (u *Updater) checkAllDoneKeyboard(summary CheckSummary) map[string]any {
+	rows := [][]telegram.Button{}
+	if len(summary.UpdateTokens) > 0 {
+		token := randomToken()
+		u.mu.Lock()
+		u.batchUpdates[token] = append([]string(nil), summary.UpdateTokens...)
+		u.mu.Unlock()
+		rows = append(rows, []telegram.Button{{Text: fmt.Sprintf("全部更新（%d）", len(summary.UpdateTokens)), Data: "batchupdate:" + token}})
+	}
+	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
+	return telegram.Keyboard(rows)
 }
 
 func (u *Updater) sendMainMenu(ctx context.Context) {
@@ -884,7 +911,7 @@ func (u *Updater) manualProjectCheck(ctx context.Context, messageID int64, key s
 }
 
 func (u *Updater) checkContainerVersions(ctx context.Context, c dockerx.ContainerInfo) (dockerx.ImageVersion, dockerx.ImageVersion, error) {
-	oldVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
+	oldVersion, err := u.docker.InspectImageVersionByID(ctx, c.ImageID)
 	if err != nil {
 		return oldVersion, dockerx.ImageVersion{}, err
 	}
@@ -896,6 +923,55 @@ func (u *Updater) checkContainerVersions(ctx context.Context, c dockerx.Containe
 	}
 	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
 	return oldVersion, newVersion, err
+}
+
+func (u *Updater) handleBatchUpdate(ctx context.Context, cb telegram.Callback, token string) {
+	u.mu.Lock()
+	tokens, ok := u.batchUpdates[token]
+	if ok {
+		delete(u.batchUpdates, token)
+	}
+	updates := []pendingUpdate{}
+	for _, t := range tokens {
+		if p, exists := u.pending[t]; exists {
+			delete(u.pending, t)
+			p.MessageID = cb.MessageID
+			updates = append(updates, p)
+			continue
+		}
+		if p, exists := u.manualChecks[t]; exists {
+			delete(u.manualChecks, t)
+			p.MessageID = cb.MessageID
+			updates = append(updates, p)
+		}
+	}
+	u.mu.Unlock()
+	if !ok || len(updates) == 0 {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "这些更新已经处理或过期")
+		return
+	}
+	_ = u.bot.AnswerCallback(ctx, cb.ID, "开始全部更新")
+	_ = u.bot.EditMessage(ctx, cb.MessageID, fmt.Sprintf("⏳ 正在更新 %d 个容器…", len(updates)))
+	go func() {
+		success := 0
+		failed := []string{}
+		for i, p := range updates {
+			_ = u.bot.EditMessage(ctx, cb.MessageID, fmt.Sprintf("⏳ 正在更新 %d/%d：%s", i+1, len(updates), p.Container.Name))
+			if err := u.applyUpdateOnce(ctx, p); err != nil {
+				failed = append(failed, p.Container.Name+"："+err.Error())
+				continue
+			}
+			success++
+		}
+		lines := []string{fmt.Sprintf("✅ 批量更新完成：成功 %d / %d", success, len(updates))}
+		if len(failed) > 0 {
+			lines = append(lines, "", "失败：")
+			for _, item := range failed {
+				lines = append(lines, "• "+item)
+			}
+		}
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, strings.Join(lines, "\n"), navKeyboard())
+	}()
 }
 
 func (u *Updater) handleManualUpdate(ctx context.Context, cb telegram.Callback, token string) {

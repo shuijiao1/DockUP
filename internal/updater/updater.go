@@ -23,6 +23,8 @@ type CheckSummary struct {
 	RemoteChecked int
 	RemoteUpdates int
 	Errors        int
+	Skipped       []string
+	UpdateTokens  []string
 }
 
 func (s CheckSummary) TotalUpdates() int { return s.LocalUpdates + s.RemoteUpdates }
@@ -38,6 +40,7 @@ type Updater struct {
 	log             *slog.Logger
 	pending         map[string]pendingUpdate
 	manualChecks    map[string]pendingUpdate
+	batchUpdates    map[string][]string
 	confirmDeletes  map[string]confirmDelete
 	confirmAgents   map[string]confirmAgentDelete
 	addStates       map[int64]addServerState
@@ -113,6 +116,7 @@ func New(cfg config.Config, docker *dockerx.Client, bot *telegram.Bot, log *slog
 		log:             log,
 		pending:         map[string]pendingUpdate{},
 		manualChecks:    map[string]pendingUpdate{},
+		batchUpdates:    map[string][]string{},
 		confirmDeletes:  map[string]confirmDelete{},
 		confirmAgents:   map[string]confirmAgentDelete{},
 		addStates:       map[int64]addServerState{},
@@ -228,14 +232,19 @@ func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error)
 		u.log.Info("checking containers", "count", len(containers))
 
 		for _, c := range containers {
-			updated, err := u.checkContainer(ctx, c)
+			token, skipped, err := u.checkContainer(ctx, c)
 			if err != nil {
 				summary.Errors++
 				u.log.Warn("container check failed", "container", c.Name, "image", c.Image, "error", err)
 				continue
 			}
-			if updated {
+			if skipped != "" {
+				summary.Skipped = append(summary.Skipped, skipped)
+				continue
+			}
+			if token != "" {
 				summary.LocalUpdates++
+				summary.UpdateTokens = append(summary.UpdateTokens, token)
 			}
 		}
 	} else {
@@ -245,6 +254,8 @@ func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error)
 	summary.RemoteChecked += remote.RemoteChecked
 	summary.RemoteUpdates += remote.RemoteUpdates
 	summary.Errors += remote.Errors
+	summary.Skipped = append(summary.Skipped, remote.Skipped...)
+	summary.UpdateTokens = append(summary.UpdateTokens, remote.UpdateTokens...)
 	return summary, err
 }
 
@@ -271,18 +282,23 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context) (CheckSummary, error) {
 		summary.RemoteUpdates += len(updates)
 		u.log.Info("remote agent update check finished", "agent", agentCfg.Name, "updates", len(updates))
 		for _, up := range updates {
-			if err := u.notifyRemoteUpdate(ctx, agentCfg.ID, agentCfg.Name, up.Container, up.OldVersion, up.NewVersion); err != nil {
+			token, err := u.notifyRemoteUpdate(ctx, agentCfg.ID, agentCfg.Name, up.Container, up.OldVersion, up.NewVersion)
+			if err != nil {
 				u.log.Warn("remote update notification failed", "agent", agentCfg.Name, "container", up.Container.Name, "error", err)
+				continue
+			}
+			if token != "" {
+				summary.UpdateTokens = append(summary.UpdateTokens, token)
 			}
 		}
 	}
 	return summary, nil
 }
 
-func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) (bool, error) {
+func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) (token string, skipped string, err error) {
 	oldVersion, err := u.docker.InspectImageVersionByID(ctx, c.ImageID)
 	if err != nil {
-		return false, err
+		return "", "", err
 	}
 	if oldVersion.ID == "" {
 		oldVersion.ID = c.ImageID
@@ -290,38 +306,48 @@ func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) (
 
 	u.log.Info("pulling image", "container", c.Name, "image", c.Image)
 	if err := u.docker.PullImage(ctx, c.Image); err != nil {
-		return false, err
+		if isPullUnavailable(err) {
+			u.log.Info("container image is not pullable, skipped", "container", c.Name, "image", c.Image)
+			return "", c.Name + "（本地镜像，无法从仓库 pull）", nil
+		}
+		return "", "", err
 	}
 
 	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
 	if err != nil {
-		return false, err
+		return "", "", err
 	}
 	if normalizeID(oldVersion.ID) == normalizeID(newVersion.ID) {
-		return false, nil
+		return "", "", nil
 	}
 
-	return true, u.notifyUpdate(ctx, c, oldVersion, newVersion)
+	token, err = u.notifyUpdate(ctx, c, oldVersion, newVersion)
+	return token, "", err
 }
 
-func (u *Updater) notifyUpdate(ctx context.Context, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) error {
+func isPullUnavailable(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "pull access denied") || strings.Contains(msg, "repository does not exist") || strings.Contains(msg, "not found")
+}
+
+func (u *Updater) notifyUpdate(ctx context.Context, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) (string, error) {
 	return u.notifyUpdateFrom(ctx, "", "", c, oldVersion, newVersion)
 }
 
-func (u *Updater) notifyRemoteUpdate(ctx context.Context, agentID, agentName string, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) error {
+func (u *Updater) notifyRemoteUpdate(ctx context.Context, agentID, agentName string, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) (string, error) {
 	return u.notifyUpdateFrom(ctx, agentID, agentName, c, oldVersion, newVersion)
 }
 
-func (u *Updater) notifyUpdateFrom(ctx context.Context, agentID, agentName string, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) error {
+func (u *Updater) notifyUpdateFrom(ctx context.Context, agentID, agentName string, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) (string, error) {
 	if !u.bot.Enabled() {
 		u.log.Warn("update available but telegram is not configured", "agent", agentName, "container", c.Name, "image", c.Image, "old", oldVersion.Display(), "new", newVersion.Display())
-		return nil
+		return "", nil
 	}
 	u.mu.Lock()
 	for _, p := range u.pending {
 		if p.AgentID == agentID && p.Container.ID == c.ID && normalizeID(p.NewVersion.ID) == normalizeID(newVersion.ID) {
 			u.mu.Unlock()
-			return nil
+			return p.Token, nil
 		}
 	}
 	token := randomToken()
@@ -332,7 +358,7 @@ func (u *Updater) notifyUpdateFrom(ctx context.Context, agentID, agentName strin
 	text := formatPrompt(agentName, c, oldVersion, newVersion)
 	msgID, err := u.bot.SendUpdatePrompt(ctx, text, "update:"+token, "ignore:"+token)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if msgID != 0 {
 		u.mu.Lock()
@@ -340,7 +366,7 @@ func (u *Updater) notifyUpdateFrom(ctx context.Context, agentID, agentName strin
 		u.pending[token] = p
 		u.mu.Unlock()
 	}
-	return nil
+	return token, nil
 }
 
 func (u *Updater) handleCallback(parent context.Context, cb telegram.Callback) {
@@ -384,11 +410,10 @@ func (u *Updater) handleCallback(parent context.Context, cb telegram.Callback) {
 }
 
 func (u *Updater) applyUpdate(parent context.Context, p pendingUpdate) {
-	ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
-	defer cancel()
-
-	u.log.Info("updating container", "container", p.Container.Name, "image", p.Container.Image, "old", p.OldVersion.Display(), "new", p.NewVersion.Display())
 	if p.Container.Name == "dockup" {
+		ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
+		defer cancel()
+		u.log.Info("updating container", "container", p.Container.Name, "image", p.Container.Image, "old", p.OldVersion.Display(), "new", p.NewVersion.Display())
 		helperID, err := u.docker.RunSelfUpdateHelper(ctx, p.Container.Image, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
 		if err != nil {
 			_ = u.bot.EditMessage(parent, p.MessageID, formatFailed(p, err))
@@ -397,22 +422,31 @@ func (u *Updater) applyUpdate(parent context.Context, p pendingUpdate) {
 		_ = u.bot.EditMessage(parent, p.MessageID, formatSelfUpdateStarted(p, helperID))
 		return
 	}
-	var err error
-	if p.AgentID != "" {
-		agentCfg, ok := u.findAgent(p.AgentID)
-		if ok && agentCfg.Mode == "reverse" && u.reverse != nil {
-			err = u.reverse.UpdateContainer(ctx, agentCfg, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
-		} else {
-			err = u.agents.UpdateContainer(ctx, p.AgentID, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
-		}
-	} else {
-		_, _, err = u.docker.UpdateContainer(ctx, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
-	}
-	if err != nil {
+	if err := u.applyUpdateOnce(parent, p); err != nil {
 		_ = u.bot.EditMessage(parent, p.MessageID, formatFailed(p, err))
 		return
 	}
 	_ = u.bot.EditMessage(parent, p.MessageID, formatSuccess(p))
+}
+
+func (u *Updater) applyUpdateOnce(parent context.Context, p pendingUpdate) error {
+	ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
+	defer cancel()
+
+	u.log.Info("updating container", "container", p.Container.Name, "image", p.Container.Image, "old", p.OldVersion.Display(), "new", p.NewVersion.Display())
+	if p.Container.Name == "dockup" {
+		_, err := u.docker.RunSelfUpdateHelper(ctx, p.Container.Image, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
+		return err
+	}
+	if p.AgentID != "" {
+		agentCfg, ok := u.findAgent(p.AgentID)
+		if ok && agentCfg.Mode == "reverse" && u.reverse != nil {
+			return u.reverse.UpdateContainer(ctx, agentCfg, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
+		}
+		return u.agents.UpdateContainer(ctx, p.AgentID, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
+	}
+	_, _, err := u.docker.UpdateContainer(ctx, p.Container.ID, p.Container.Image, u.cfg.Cleanup)
+	return err
 }
 
 func (u *Updater) findAgent(id string) (config.AgentConfig, bool) {
