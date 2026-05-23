@@ -81,7 +81,7 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		_ = u.bot.AnswerCallback(ctx, cb.ID, "开始检查全部")
 		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在检查全部容器更新…", nil)
 		go func() {
-			summary, err := u.CheckOnceSummary(ctx)
+			summary, err := u.CheckOnceSummary(ctx, true)
 			if err != nil {
 				_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
@@ -149,7 +149,7 @@ func (u *Updater) handleCommand(ctx context.Context, cb telegram.Callback, cmd s
 	case "checkall":
 		msg, _ := u.bot.SendMessage(ctx, "⏳ 正在检查全部容器更新…", nil)
 		go func() {
-			summary, err := u.CheckOnceSummary(ctx)
+			summary, err := u.CheckOnceSummary(ctx, true)
 			if err != nil {
 				_ = u.bot.EditMessageWithKeyboard(ctx, msg, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
@@ -163,12 +163,9 @@ func (u *Updater) handleCommand(ctx context.Context, cb telegram.Callback, cmd s
 func checkAllDoneText(summary CheckSummary) string {
 	lines := []string{"✅ 全部容器检查完成", "", fmt.Sprintf("已检查：本机 %d 个容器 · 远程 %d 台 VPS", summary.LocalChecked, summary.RemoteChecked)}
 	if summary.TotalUpdates() > 0 {
-		lines = append(lines, fmt.Sprintf("本次发现更新：%d 个（本机 %d · 远程 %d）", summary.TotalUpdates(), summary.LocalUpdates, summary.RemoteUpdates), "可点下方按钮批量更新，也可以用单独通知逐个更新。")
+		lines = append(lines, fmt.Sprintf("发现更新：%d 个（本机 %d · 远程 %d）", summary.TotalUpdates(), summary.LocalUpdates, summary.RemoteUpdates), "可点下方按钮批量更新，或逐个更新。")
 	} else {
-		lines = append(lines, "本次没有发现新的更新。")
-	}
-	if summary.PendingUpdates() > summary.TotalUpdates() {
-		lines = append(lines, fmt.Sprintf("当前待处理更新通知：%d 个（本机 %d · 远程 %d）", summary.PendingUpdates(), summary.PendingLocalUpdates, summary.PendingRemoteUpdates), "批量按钮会包含这些待处理通知。")
+		lines = append(lines, "没有发现更新。")
 	}
 	if len(summary.Skipped) > 0 {
 		lines = append(lines, "", fmt.Sprintf("跳过：%d 个", len(summary.Skipped)))
@@ -188,19 +185,33 @@ func checkAllDoneText(summary CheckSummary) string {
 
 func (u *Updater) checkAllDoneKeyboard(summary CheckSummary) map[string]any {
 	rows := [][]telegram.Button{}
-	tokens := summary.PendingUpdateTokens
-	if len(tokens) == 0 {
-		tokens = summary.UpdateTokens
-	}
-	if len(tokens) > 0 {
-		token := randomToken()
+	if len(summary.Updates) > 0 {
+		tokens := make([]string, 0, len(summary.Updates))
 		u.mu.Lock()
-		u.batchUpdates[token] = append([]string(nil), tokens...)
+		for _, up := range summary.Updates {
+			token := up.Token
+			if token == "" {
+				token = randomToken()
+			}
+			up.Token = token
+			u.manualChecks[token] = up
+			tokens = append(tokens, token)
+			rows = append(rows, []telegram.Button{{Text: "更新 " + updateButtonLabel(up), Data: "pupdate:" + token}})
+		}
+		batchToken := randomToken()
+		u.batchUpdates[batchToken] = append([]string(nil), tokens...)
 		u.mu.Unlock()
-		rows = append(rows, []telegram.Button{{Text: fmt.Sprintf("全部更新（%d）", len(tokens)), Data: "batchupdate:" + token}})
+		rows = append([][]telegram.Button{{{Text: fmt.Sprintf("全部更新（%d）", len(tokens)), Data: "batchupdate:" + batchToken}}}, rows...)
 	}
 	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
 	return telegram.Keyboard(rows)
+}
+
+func updateButtonLabel(up pendingUpdate) string {
+	if up.AgentName != "" {
+		return up.AgentName + " / " + up.Container.Name
+	}
+	return up.Container.Name
 }
 
 func (u *Updater) sendMainMenu(ctx context.Context) {

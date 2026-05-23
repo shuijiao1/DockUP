@@ -28,6 +28,7 @@ type CheckSummary struct {
 	PendingUpdateTokens  []string
 	PendingLocalUpdates  int
 	PendingRemoteUpdates int
+	Updates              []pendingUpdate
 }
 
 func (s CheckSummary) TotalUpdates() int   { return s.LocalUpdates + s.RemoteUpdates }
@@ -214,11 +215,11 @@ func (u *Updater) checkPendingPairs(ctx context.Context) {
 }
 
 func (u *Updater) CheckOnce(parent context.Context) error {
-	_, err := u.CheckOnceSummary(parent)
+	_, err := u.CheckOnceSummary(parent, false)
 	return err
 }
 
-func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error) {
+func (u *Updater) CheckOnceSummary(parent context.Context, manual bool) (CheckSummary, error) {
 	ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
 	defer cancel()
 	summary := CheckSummary{}
@@ -236,7 +237,7 @@ func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error)
 		u.log.Info("checking containers", "count", len(containers))
 
 		for _, c := range containers {
-			token, skipped, err := u.checkContainer(ctx, c)
+			token, update, skipped, err := u.checkContainer(ctx, c, manual)
 			if err != nil {
 				summary.Errors++
 				u.log.Warn("container check failed", "container", c.Name, "image", c.Image, "error", err)
@@ -246,21 +247,28 @@ func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error)
 				summary.Skipped = append(summary.Skipped, skipped)
 				continue
 			}
-			if token != "" {
+			if token != "" || update != nil {
 				summary.LocalUpdates++
+			}
+			if token != "" {
 				summary.UpdateTokens = append(summary.UpdateTokens, token)
+			}
+			if update != nil {
+				summary.Updates = append(summary.Updates, *update)
 			}
 		}
 	} else {
 		u.log.Info("local update check skipped")
 	}
-	remote, err := u.CheckRemoteAgents(ctx)
+	remote, err := u.CheckRemoteAgents(ctx, manual)
 	summary.RemoteChecked += remote.RemoteChecked
 	summary.RemoteUpdates += remote.RemoteUpdates
 	summary.Errors += remote.Errors
 	summary.Skipped = append(summary.Skipped, remote.Skipped...)
 	summary.UpdateTokens = append(summary.UpdateTokens, remote.UpdateTokens...)
-	summary.PendingUpdateTokens, summary.PendingLocalUpdates, summary.PendingRemoteUpdates = u.pendingUpdateSnapshot()
+	if !manual {
+		summary.PendingUpdateTokens, summary.PendingLocalUpdates, summary.PendingRemoteUpdates = u.pendingUpdateSnapshot()
+	}
 	return summary, err
 }
 
@@ -281,7 +289,7 @@ func (u *Updater) pendingUpdateSnapshot() ([]string, int, int) {
 	return tokens, local, remote
 }
 
-func (u *Updater) CheckRemoteAgents(ctx context.Context) (CheckSummary, error) {
+func (u *Updater) CheckRemoteAgents(ctx context.Context, manual bool) (CheckSummary, error) {
 	summary := CheckSummary{}
 	if u.agents == nil || !u.agents.Enabled() {
 		return summary, nil
@@ -304,6 +312,10 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context) (CheckSummary, error) {
 		summary.RemoteUpdates += len(updates)
 		u.log.Info("remote agent update check finished", "agent", agentCfg.Name, "updates", len(updates))
 		for _, up := range updates {
+			if manual {
+				summary.Updates = append(summary.Updates, pendingUpdate{Token: randomToken(), Container: up.Container, OldVersion: up.OldVersion, NewVersion: up.NewVersion, AgentID: agentCfg.ID, AgentName: agentCfg.Name, CreatedAt: time.Now()})
+				continue
+			}
 			token, err := u.notifyRemoteUpdate(ctx, agentCfg.ID, agentCfg.Name, up.Container, up.OldVersion, up.NewVersion)
 			if err != nil {
 				u.log.Warn("remote update notification failed", "agent", agentCfg.Name, "container", up.Container.Name, "error", err)
@@ -317,10 +329,10 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context) (CheckSummary, error) {
 	return summary, nil
 }
 
-func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) (token string, skipped string, err error) {
+func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo, manual bool) (token string, update *pendingUpdate, skipped string, err error) {
 	oldVersion, err := u.docker.InspectImageVersionByID(ctx, c.ImageID)
 	if err != nil {
-		return "", "", err
+		return "", nil, "", err
 	}
 	if oldVersion.ID == "" {
 		oldVersion.ID = c.ImageID
@@ -330,21 +342,25 @@ func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) (
 	if err := u.docker.PullImage(ctx, c.Image); err != nil {
 		if isPullUnavailable(err) {
 			u.log.Info("container image is not pullable, skipped", "container", c.Name, "image", c.Image)
-			return "", c.Name + "（本地镜像，无法从仓库 pull）", nil
+			return "", nil, c.Name + "（本地镜像，无法从仓库 pull）", nil
 		}
-		return "", "", err
+		return "", nil, "", err
 	}
 
 	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
 	if err != nil {
-		return "", "", err
+		return "", nil, "", err
 	}
 	if normalizeID(oldVersion.ID) == normalizeID(newVersion.ID) {
-		return "", "", nil
+		return "", nil, "", nil
 	}
 
+	if manual {
+		up := pendingUpdate{Token: randomToken(), Container: c, OldVersion: oldVersion, NewVersion: newVersion, CreatedAt: time.Now()}
+		return "", &up, "", nil
+	}
 	token, err = u.notifyUpdate(ctx, c, oldVersion, newVersion)
-	return token, "", err
+	return token, nil, "", err
 }
 
 func isPullUnavailable(err error) bool {

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.8
+
+- Changed manual “check all” to be a true fresh full scan. It no longer depends on pending/ignored notification state: every manual check lists all currently available updates and provides fresh per-item and batch update buttons on the result page.
+
 ## v0.6.7
 
 - Fixed “check all” summaries when updates were already pending. The result now separates newly detected updates from existing pending update notifications and the batch update button includes all pending updates.
