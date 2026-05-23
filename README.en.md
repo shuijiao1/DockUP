@@ -16,30 +16,14 @@
 
 ## 🎯 Features
 
-- **Checks all running containers by default**
-- **Checks every 12 hours by default**
-- **Telegram button-based Docker management panel**
-- **Supports server + remote Agent mode for multiple VPS hosts**
-- **Remote Agents also join the 12-hour automatic update check and notify through the server Telegram bot**
-- **Detects Docker containers and Compose projects**
-- **Manually checks all containers / one remote VPS / one project and updates immediately**
-- **Manual “check all” always performs a fresh full scan, independent of previous notifications, ignored items, or pending queues**
-- **Check results support both batch update and per-item update buttons**
-- **Supports start / stop / restart / project deletion with confirmation**
-- **Supports remote VPS removal: shows an Agent uninstall command, then removes the local record after the Agent is offline**
-- **Automatically backs up the config before removing remote VPS records**
-- **Filters Telegram commands and button callbacks by `TG_CHAT_ID`**
-- **Temporarily changes the automatic check interval from Telegram**
-- **Recreates containers with their original configuration**
-- **Attempts rollback if an approved update fails to start**
-- **Waits for Docker health checks**
-- **Cleans up old images by default after approved successful updates**
-- **Detail pages show image versions, preferring semantic versions such as `v0.6.13` and falling back to short image IDs only when no version is available**
-- **DockUP also checks and updates itself through a temporary helper container; remote Agent self-updates use a helper to avoid disconnecting mid-request**
+- **Telegram Docker dashboard**: view container / Compose project status and start, stop, restart, or confirm deletion.
+- **Update notifications**: periodically check image updates and update only after Telegram confirmation.
+- **Manual checks and batch updates**: check all projects, a single project, or projects on remote servers.
+- **Multi-VPS management**: use a central server with remote Agents that connect back to it.
+- **Safer operations**: Telegram chat authorization and config backups before removing remote server records.
 
-DockUP does not provide a web UI, Slack/email/Teams notifications, or volume deletion. Automatic and manual checks both use Telegram approval buttons when updates are found. Remote VPS hosts connect through **Agents that actively dial back to the server**, so remote hosts do not need to expose an Agent management port. The server checks both local Docker and all remote Agents with the same `CHECK_INTERVAL`; default is 12 hours.
+DockUP does not provide a web dashboard and does not delete Docker volumes. Updates are applied only after confirmation in Telegram.
 
-> When removing a remote VPS, DockUP does not execute arbitrary remote commands. The bot shows a fixed uninstall command for the user to run on the remote host. After the Agent is offline, the server backs up and removes the local record.
 ---
 
 ## 🚀 Quick Start
