@@ -69,7 +69,7 @@ func (c *Client) InspectImageVersion(ctx context.Context, ref string) (ImageVers
 		v.Digest = digestFromRef(ref)
 	}
 
-	if tag := tagFromRef(ref); tag != "" && tag != "latest" {
+	if tag := tagFromRef(ref); tag != "" && tag != "latest" && !isBareDigestTag(tag) {
 		v.Tag = tag
 	}
 	if v.Tag == "" {

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.13
+
+- Fixed Docker detail version detection for images inspected by image ID (`sha256:...`). DockUP now prefers semantic version labels like `v0.6.10` instead of treating the sha256 ID as a tag.
+
 ## v0.6.12
 
 - Improved version display: when no semantic version tag or image label is available, DockUP now shows only the short image ID instead of repeating the full sha-like digest plus the same short ID.
