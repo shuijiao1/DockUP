@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.6
+
+- Changed Docker publishing so `latest` is only moved by version tags. This keeps the running `latest` image labeled with the release version instead of `main`, making Docker detail pages show semantic versions consistently.
+
 ## v0.6.5
 
 - Added a batch update button to the “check all” result when updates are found.
