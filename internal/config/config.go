@@ -128,7 +128,10 @@ func parseAgents(raw string) []AgentConfig {
 		if len(parts) >= 4 {
 			a.Token = strings.TrimSpace(parts[3])
 		}
-		if a.ID == "" || a.URL == "" || seen[a.ID] {
+		if a.URL == "" && a.Token != "" {
+			a.Mode = "reverse"
+		}
+		if a.ID == "" || a.Token == "" || (a.URL == "" && a.Mode != "reverse") || seen[a.ID] {
 			continue
 		}
 		seen[a.ID] = true

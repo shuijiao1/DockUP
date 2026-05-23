@@ -154,7 +154,7 @@ func (s *Store) CreatePair(name, rawURL string, ttl time.Duration) (PendingPair,
 	name = strings.TrimSpace(name)
 	rawURL = strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	if name == "" {
-		name = defaultName(rawURL)
+		name = DefaultAgentName(rawURL)
 	}
 	if ttl <= 0 {
 		ttl = 30 * time.Minute
@@ -347,7 +347,7 @@ func BuildAgentURL(raw string) string {
 	return strings.TrimRight(u.String(), "/")
 }
 
-func defaultName(raw string) string {
+func DefaultAgentName(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "server"

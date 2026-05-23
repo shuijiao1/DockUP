@@ -242,6 +242,10 @@ func (u *Updater) handleTextMessage(ctx context.Context, cb telegram.Callback) b
 		return false
 	}
 	if st.Step == "name" {
+		if looksLikeAgentAddress(text) {
+			u.createPairFromText(ctx, key, st, "", text)
+			return true
+		}
 		st.Name = text
 		st.Step = "url"
 		u.mu.Lock()
@@ -251,26 +255,43 @@ func (u *Updater) handleTextMessage(ctx context.Context, cb telegram.Callback) b
 		return true
 	}
 	if st.Step == "url" {
-		if u.store == nil {
-			_, _ = u.bot.SendMessage(ctx, "❌ 存储未初始化，无法添加服务器。", nil)
-			return true
-		}
-		agentURL := config.BuildAgentURL(text)
-		name := st.Name
-		if name == "" {
-			name = text
-		}
-		pair, err := u.store.CreatePair(name, agentURL, 30*time.Minute)
-		if err != nil {
-			_, _ = u.bot.SendMessage(ctx, "❌ 添加失败："+friendlyError(err), nil)
-			return true
-		}
-		u.mu.Lock()
-		delete(u.addStates, key)
-		u.mu.Unlock()
-		install := u.installCommand(pair)
-		msgID, _ := u.bot.SendMessage(ctx, fmt.Sprintf("🧩 服务器：%s\n地址：%s\n\n在目标服务器执行下面命令完成接入：\n\n%s\n\n有效期：30 分钟。对接成功后我会通知。", pair.Name, pair.URL, install), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
-		_ = u.store.SetPairMessage(pair.ID, msgID)
+		u.createPairFromText(ctx, key, st, st.Name, text)
+		return true
+	}
+	return false
+}
+
+func (u *Updater) createPairFromText(ctx context.Context, stateKey int64, _ addServerState, name, rawURL string) {
+	if u.store == nil {
+		_, _ = u.bot.SendMessage(ctx, "❌ 存储未初始化，无法添加服务器。", nil)
+		return
+	}
+	agentURL := config.BuildAgentURL(rawURL)
+	if strings.TrimSpace(name) == "" {
+		name = config.DefaultAgentName(rawURL)
+	}
+	pair, err := u.store.CreatePair(name, agentURL, 30*time.Minute)
+	if err != nil {
+		_, _ = u.bot.SendMessage(ctx, "❌ 添加失败："+friendlyError(err), nil)
+		return
+	}
+	u.mu.Lock()
+	delete(u.addStates, stateKey)
+	u.mu.Unlock()
+	install := u.installCommand(pair)
+	msgID, _ := u.bot.SendMessage(ctx, fmt.Sprintf("🧩 服务器：%s\n地址：%s\n\n在目标服务器执行下面命令完成接入：\n\n%s\n\n有效期：30 分钟。对接成功后我会通知。", pair.Name, pair.URL, install), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+	_ = u.store.SetPairMessage(pair.ID, msgID)
+}
+
+func looksLikeAgentAddress(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "://") {
+		return true
+	}
+	if strings.ContainsAny(text, ".:") && !strings.Contains(text, " ") {
 		return true
 	}
 	return false

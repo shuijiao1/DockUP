@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.1
+
+- Fixed preconfigured reverse Agents using `DOCKUP_AGENTS` with an empty URL, e.g. `id||Name|token`.
+- Improved Telegram server onboarding so sending an IP address or Agent URL as the first reply directly generates the Agent install command with a sensible default name.
+
 ## v0.6.0
 
 - Added a remote VPS removal flow in Telegram.
