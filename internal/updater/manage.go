@@ -81,11 +81,12 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		_ = u.bot.AnswerCallback(ctx, cb.ID, "开始检查全部")
 		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在检查全部容器更新…", nil)
 		go func() {
-			if err := u.CheckOnce(ctx); err != nil {
+			summary, err := u.CheckOnceSummary(ctx)
+			if err != nil {
 				_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
 			}
-			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "✅ 全部容器检查完成\n\n有更新时会单独发送更新按钮通知。", navKeyboard())
+			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, checkAllDoneText(summary), navKeyboard())
 		}()
 		return true
 	}
@@ -144,14 +145,28 @@ func (u *Updater) handleCommand(ctx context.Context, cb telegram.Callback, cmd s
 	case "checkall":
 		msg, _ := u.bot.SendMessage(ctx, "⏳ 正在检查全部容器更新…", nil)
 		go func() {
-			if err := u.CheckOnce(ctx); err != nil {
+			summary, err := u.CheckOnceSummary(ctx)
+			if err != nil {
 				_ = u.bot.EditMessageWithKeyboard(ctx, msg, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
 			}
-			_ = u.bot.EditMessageWithKeyboard(ctx, msg, "✅ 全部容器检查完成\n\n有更新时会单独发送更新按钮通知。", navKeyboard())
+			_ = u.bot.EditMessageWithKeyboard(ctx, msg, checkAllDoneText(summary), navKeyboard())
 		}()
 	}
 	return true
+}
+
+func checkAllDoneText(summary CheckSummary) string {
+	lines := []string{"✅ 全部容器检查完成", "", fmt.Sprintf("已检查：本机 %d 个容器 · 远程 %d 台 VPS", summary.LocalChecked, summary.RemoteChecked)}
+	if summary.TotalUpdates() > 0 {
+		lines = append(lines, fmt.Sprintf("发现更新：%d 个（本机 %d · 远程 %d）", summary.TotalUpdates(), summary.LocalUpdates, summary.RemoteUpdates), "已单独发送更新按钮通知。")
+	} else {
+		lines = append(lines, "没有发现更新。")
+	}
+	if summary.Errors > 0 {
+		lines = append(lines, fmt.Sprintf("检查失败/跳过：%d 个，详情看日志。", summary.Errors))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (u *Updater) sendMainMenu(ctx context.Context) {
@@ -704,6 +719,9 @@ func formatContainerDetail(d dockerx.ContainerDetail) []string {
 		fmt.Sprintf("%s %s", stateIcon(d.State), name),
 		fmt.Sprintf("🚦 状态：%s", state),
 		fmt.Sprintf("🖼️ 镜像：%s", d.Info.Image),
+	}
+	if v := d.Version.Display(); v != "" && v != "-" {
+		lines = append(lines, "🏷️ 版本："+v)
 	}
 	if d.State == "running" {
 		lines = append(lines, fmt.Sprintf("📊 占用：CPU %.2f%% · 内存 %s", d.CPUPercent, dockerx.FormatBytes(d.Memory)))

@@ -66,12 +66,26 @@ func (c *Client) InspectImageVersion(ctx context.Context, ref string) (ImageVers
 	if tag := tagFromRef(ref); tag != "" && tag != "latest" {
 		v.Tag = tag
 	}
+	if v.Tag == "" {
+		v.Tag = imageVersionLabel(data)
+	}
 	if v.Tag == "" && v.Digest != "" {
 		if tag, err := c.LookupVersionTag(ctx, ref, v.Digest); err == nil {
 			v.Tag = tag
 		}
 	}
 	return v, nil
+}
+
+func imageVersionLabel(data map[string]any) string {
+	cfg, _ := data["Config"].(map[string]any)
+	labels, _ := cfg["Labels"].(map[string]any)
+	for _, key := range []string{"org.opencontainers.image.version", "org.label-schema.version", "version"} {
+		if v := strings.TrimSpace(str(labels[key])); v != "" && v != "latest" && v != "main" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (c *Client) InspectImageVersionByID(ctx context.Context, imageID string) (ImageVersion, error) {

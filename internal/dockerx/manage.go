@@ -42,6 +42,7 @@ type ContainerDetail struct {
 	NetTx      uint64
 	BlockRead  uint64
 	BlockWrite uint64
+	Version    ImageVersion
 }
 
 func (c *Client) AllContainers(ctx context.Context) ([]ContainerInfo, error) {
@@ -145,6 +146,9 @@ func (c *Client) ContainerDetail(ctx context.Context, id string) (ContainerDetai
 	d.Compose = d.Project != ""
 	if health, _ := state["Health"].(map[string]any); health != nil {
 		d.Health = str(health["Status"])
+	}
+	if v, err := c.InspectImageVersionByID(ctx, d.Info.ImageID); err == nil {
+		d.Version = v
 	}
 	_ = c.fillStats(ctx, &d)
 	return d, nil

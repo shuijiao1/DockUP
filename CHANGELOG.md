@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.4
+
+- Improved manual “check all” feedback to show how many local containers and remote VPS were checked, how many updates were found, and whether any checks failed.
+- Added running image version display to Docker and remote Docker detail pages, e.g. `v0.6.4 (abcdef123456)` when image labels or semantic tags are available.
+
 ## v0.6.3
 
 - Fixed update detection after manually checking `latest` images. DockUP now compares the running container image ID against the pulled tag image ID, so repeated checks still show an update until the container is actually recreated.

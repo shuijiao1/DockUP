@@ -17,6 +17,17 @@ import (
 	"github.com/shuijiao1/DockUP/internal/telegram"
 )
 
+type CheckSummary struct {
+	LocalChecked  int
+	LocalUpdates  int
+	RemoteChecked int
+	RemoteUpdates int
+	Errors        int
+}
+
+func (s CheckSummary) TotalUpdates() int { return s.LocalUpdates + s.RemoteUpdates }
+func (s CheckSummary) Checked() int      { return s.LocalChecked + s.RemoteChecked }
+
 type Updater struct {
 	cfg             config.Config
 	docker          *dockerx.Client
@@ -195,34 +206,52 @@ func (u *Updater) checkPendingPairs(ctx context.Context) {
 }
 
 func (u *Updater) CheckOnce(parent context.Context) error {
+	_, err := u.CheckOnceSummary(parent)
+	return err
+}
+
+func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error) {
 	ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
 	defer cancel()
+	summary := CheckSummary{}
 	if u.interval() <= 0 {
 		u.log.Info("automatic update check skipped", "interval", u.interval().String())
-		return nil
+		return summary, nil
 	}
 
 	if u.cfg.CheckLocal {
 		containers, err := u.docker.RunningContainers(ctx)
 		if err != nil {
-			return err
+			return summary, err
 		}
+		summary.LocalChecked = len(containers)
 		u.log.Info("checking containers", "count", len(containers))
 
 		for _, c := range containers {
-			if err := u.checkContainer(ctx, c); err != nil {
+			updated, err := u.checkContainer(ctx, c)
+			if err != nil {
+				summary.Errors++
 				u.log.Warn("container check failed", "container", c.Name, "image", c.Image, "error", err)
+				continue
+			}
+			if updated {
+				summary.LocalUpdates++
 			}
 		}
 	} else {
 		u.log.Info("local update check skipped")
 	}
-	return u.CheckRemoteAgents(ctx)
+	remote, err := u.CheckRemoteAgents(ctx)
+	summary.RemoteChecked += remote.RemoteChecked
+	summary.RemoteUpdates += remote.RemoteUpdates
+	summary.Errors += remote.Errors
+	return summary, err
 }
 
-func (u *Updater) CheckRemoteAgents(ctx context.Context) error {
+func (u *Updater) CheckRemoteAgents(ctx context.Context) (CheckSummary, error) {
+	summary := CheckSummary{}
 	if u.agents == nil || !u.agents.Enabled() {
-		return nil
+		return summary, nil
 	}
 	for _, a := range u.agents.Agents() {
 		agentCfg := a
@@ -234,9 +263,12 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context) error {
 			agentCfg, updates, err = u.agents.CheckUpdates(ctx, a.ID)
 		}
 		if err != nil {
+			summary.Errors++
 			u.log.Warn("remote agent update check failed", "agent", a.Name, "error", err)
 			continue
 		}
+		summary.RemoteChecked++
+		summary.RemoteUpdates += len(updates)
 		u.log.Info("remote agent update check finished", "agent", agentCfg.Name, "updates", len(updates))
 		for _, up := range updates {
 			if err := u.notifyRemoteUpdate(ctx, agentCfg.ID, agentCfg.Name, up.Container, up.OldVersion, up.NewVersion); err != nil {
@@ -244,13 +276,13 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return summary, nil
 }
 
-func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) error {
+func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) (bool, error) {
 	oldVersion, err := u.docker.InspectImageVersionByID(ctx, c.ImageID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if oldVersion.ID == "" {
 		oldVersion.ID = c.ImageID
@@ -258,18 +290,18 @@ func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo) e
 
 	u.log.Info("pulling image", "container", c.Name, "image", c.Image)
 	if err := u.docker.PullImage(ctx, c.Image); err != nil {
-		return err
+		return false, err
 	}
 
 	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if normalizeID(oldVersion.ID) == normalizeID(newVersion.ID) {
-		return nil
+		return false, nil
 	}
 
-	return u.notifyUpdate(ctx, c, oldVersion, newVersion)
+	return true, u.notifyUpdate(ctx, c, oldVersion, newVersion)
 }
 
 func (u *Updater) notifyUpdate(ctx context.Context, c dockerx.ContainerInfo, oldVersion, newVersion dockerx.ImageVersion) error {
