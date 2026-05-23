@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.12
+
+- Improved version display: when no semantic version tag or image label is available, DockUP now shows only the short image ID instead of repeating the full sha-like digest plus the same short ID.
+
 ## v0.6.11
 
 - Fixed remote reverse Agent self-updates. When an Agent is asked to update its own `dockup-agent` container, it now starts a self-update helper and returns immediately instead of stopping itself mid-request and making the center appear stuck.

@@ -14,6 +14,7 @@ import (
 )
 
 var semverTagRE = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)
+var hexRE = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 
 type ImageVersion struct {
 	Ref    string
@@ -24,13 +25,18 @@ type ImageVersion struct {
 
 func (v ImageVersion) Display() string {
 	id := shortID(v.ID)
-	if v.Tag == "" {
+	if v.Tag == "" || isBareDigestTag(v.Tag) {
 		return id
 	}
 	if id == "" {
 		return v.Tag
 	}
 	return fmt.Sprintf("%s (%s)", v.Tag, id)
+}
+
+func isBareDigestTag(tag string) bool {
+	tag = strings.TrimPrefix(strings.TrimSpace(tag), "sha256:")
+	return len(tag) >= 32 && hexRE.MatchString(tag)
 }
 
 func (v ImageVersion) SameTag(other ImageVersion) bool {
