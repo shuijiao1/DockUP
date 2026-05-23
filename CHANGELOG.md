@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.7
+
+- Fixed “check all” summaries when updates were already pending. The result now separates newly detected updates from existing pending update notifications and the batch update button includes all pending updates.
+
 ## v0.6.6
 
 - Changed Docker publishing so `latest` is only moved by version tags. This keeps the running `latest` image labeled with the release version instead of `main`, making Docker detail pages show semantic versions consistently.

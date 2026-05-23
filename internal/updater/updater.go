@@ -18,17 +18,21 @@ import (
 )
 
 type CheckSummary struct {
-	LocalChecked  int
-	LocalUpdates  int
-	RemoteChecked int
-	RemoteUpdates int
-	Errors        int
-	Skipped       []string
-	UpdateTokens  []string
+	LocalChecked         int
+	LocalUpdates         int
+	RemoteChecked        int
+	RemoteUpdates        int
+	Errors               int
+	Skipped              []string
+	UpdateTokens         []string
+	PendingUpdateTokens  []string
+	PendingLocalUpdates  int
+	PendingRemoteUpdates int
 }
 
-func (s CheckSummary) TotalUpdates() int { return s.LocalUpdates + s.RemoteUpdates }
-func (s CheckSummary) Checked() int      { return s.LocalChecked + s.RemoteChecked }
+func (s CheckSummary) TotalUpdates() int   { return s.LocalUpdates + s.RemoteUpdates }
+func (s CheckSummary) Checked() int        { return s.LocalChecked + s.RemoteChecked }
+func (s CheckSummary) PendingUpdates() int { return s.PendingLocalUpdates + s.PendingRemoteUpdates }
 
 type Updater struct {
 	cfg             config.Config
@@ -256,7 +260,25 @@ func (u *Updater) CheckOnceSummary(parent context.Context) (CheckSummary, error)
 	summary.Errors += remote.Errors
 	summary.Skipped = append(summary.Skipped, remote.Skipped...)
 	summary.UpdateTokens = append(summary.UpdateTokens, remote.UpdateTokens...)
+	summary.PendingUpdateTokens, summary.PendingLocalUpdates, summary.PendingRemoteUpdates = u.pendingUpdateSnapshot()
 	return summary, err
+}
+
+func (u *Updater) pendingUpdateSnapshot() ([]string, int, int) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	tokens := make([]string, 0, len(u.pending))
+	local := 0
+	remote := 0
+	for token, p := range u.pending {
+		tokens = append(tokens, token)
+		if p.AgentID != "" {
+			remote++
+		} else {
+			local++
+		}
+	}
+	return tokens, local, remote
 }
 
 func (u *Updater) CheckRemoteAgents(ctx context.Context) (CheckSummary, error) {
