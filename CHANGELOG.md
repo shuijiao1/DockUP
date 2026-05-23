@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.9
+
+- Rebuilt release for manual update verification. No runtime deployment is performed automatically; use DockUP to update local and remote agents manually.
+
 ## v0.6.8
 
 - Changed manual “check all” to be a true fresh full scan. It no longer depends on pending/ignored notification state: every manual check lists all currently available updates and provides fresh per-item and batch update buttons on the result page.
