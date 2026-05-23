@@ -179,4 +179,10 @@ func (h *Hub) OnlineIDs() map[string]bool {
 	return m
 }
 
+func (h *Hub) IsOnline(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.conns[id] != nil
+}
+
 var _ = agent.Snapshot{}

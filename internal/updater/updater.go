@@ -28,6 +28,7 @@ type Updater struct {
 	pending         map[string]pendingUpdate
 	manualChecks    map[string]pendingUpdate
 	confirmDeletes  map[string]confirmDelete
+	confirmAgents   map[string]confirmAgentDelete
 	addStates       map[int64]addServerState
 	currentInterval time.Duration
 	mu              sync.Mutex
@@ -47,6 +48,13 @@ type pendingUpdate struct {
 type confirmDelete struct {
 	Token     string
 	Project   dockerx.ProjectInfo
+	MessageID int64
+	CreatedAt time.Time
+}
+
+type confirmAgentDelete struct {
+	Token     string
+	Agent     config.AgentConfig
 	MessageID int64
 	CreatedAt time.Time
 }
@@ -95,6 +103,7 @@ func New(cfg config.Config, docker *dockerx.Client, bot *telegram.Bot, log *slog
 		pending:         map[string]pendingUpdate{},
 		manualChecks:    map[string]pendingUpdate{},
 		confirmDeletes:  map[string]confirmDelete{},
+		confirmAgents:   map[string]confirmAgentDelete{},
 		addStates:       map[int64]addServerState{},
 		currentInterval: cfg.CheckInterval,
 	}

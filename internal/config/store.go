@@ -81,14 +81,39 @@ func (s *Store) load() error {
 }
 
 func (s *Store) saveLocked() error {
+	return s.saveLockedWithBackup(false)
+}
+
+func (s *Store) saveLockedWithBackup(backup bool) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
+	}
+	if backup {
+		if err := s.backupLocked(); err != nil {
+			return err
+		}
 	}
 	b, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(s.path, append(b, '\n'), 0o600)
+}
+
+func (s *Store) backupLocked() error {
+	b, err := os.ReadFile(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	backupDir := filepath.Join(filepath.Dir(s.path), "backups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%s.%s.bak", filepath.Base(s.path), time.Now().Format("20060102-150405"))
+	return os.WriteFile(filepath.Join(backupDir, name), b, 0o600)
 }
 
 func (s *Store) Agents() []AgentConfig {
@@ -235,7 +260,7 @@ func (s *Store) RemoveServer(id string) error {
 	for i, a := range s.data.Servers {
 		if a.ID == id {
 			s.data.Servers = append(s.data.Servers[:i], s.data.Servers[i+1:]...)
-			return s.saveLocked()
+			return s.saveLockedWithBackup(true)
 		}
 	}
 	return fmt.Errorf("server not found")

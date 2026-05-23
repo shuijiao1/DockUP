@@ -41,6 +41,18 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		u.showAgent(ctx, cb.MessageID, strings.TrimPrefix(data, "agent:"))
 		return true
 	}
+	if strings.HasPrefix(data, "adelask:") {
+		u.confirmAgentDelete(ctx, cb, strings.TrimPrefix(data, "adelask:"))
+		return true
+	}
+	if strings.HasPrefix(data, "adelcheck:") {
+		u.executeAgentDelete(ctx, cb, strings.TrimPrefix(data, "adelcheck:"))
+		return true
+	}
+	if strings.HasPrefix(data, "adelconfirm:") {
+		u.forceAgentDelete(ctx, cb, strings.TrimPrefix(data, "adelconfirm:"))
+		return true
+	}
 	if strings.HasPrefix(data, "rproject:") {
 		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
 		u.showRemoteProject(ctx, cb.MessageID, strings.TrimPrefix(data, "rproject:"))
@@ -60,7 +72,7 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在检查全部容器更新…", nil)
 		go func() {
 			if err := u.CheckOnce(ctx); err != nil {
-				_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "❌ 检查失败\n\n错误："+err.Error(), navKeyboard())
+				_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
 			}
 			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "✅ 全部容器检查完成\n\n有更新时会单独发送更新按钮通知。", navKeyboard())
@@ -123,7 +135,7 @@ func (u *Updater) handleCommand(ctx context.Context, cb telegram.Callback, cmd s
 		msg, _ := u.bot.SendMessage(ctx, "⏳ 正在检查全部容器更新…", nil)
 		go func() {
 			if err := u.CheckOnce(ctx); err != nil {
-				_ = u.bot.EditMessageWithKeyboard(ctx, msg, "❌ 检查失败\n\n错误："+err.Error(), navKeyboard())
+				_ = u.bot.EditMessageWithKeyboard(ctx, msg, friendlyErrorText("❌ 检查失败", err), navKeyboard())
 				return
 			}
 			_ = u.bot.EditMessageWithKeyboard(ctx, msg, "✅ 全部容器检查完成\n\n有更新时会单独发送更新按钮通知。", navKeyboard())
@@ -152,7 +164,7 @@ func (u *Updater) sendHome(ctx context.Context) {
 func (u *Updater) showHome(ctx context.Context, messageID int64) {
 	projects, err := u.docker.Projects(ctx)
 	if err != nil {
-		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 获取 Docker 项目失败\n\n错误："+err.Error(), navKeyboard())
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取 Docker 项目失败", err), navKeyboard())
 		return
 	}
 	running := 0
@@ -250,7 +262,7 @@ func (u *Updater) handleTextMessage(ctx context.Context, cb telegram.Callback) b
 		}
 		pair, err := u.store.CreatePair(name, agentURL, 30*time.Minute)
 		if err != nil {
-			_, _ = u.bot.SendMessage(ctx, "❌ 添加失败："+err.Error(), nil)
+			_, _ = u.bot.SendMessage(ctx, "❌ 添加失败："+friendlyError(err), nil)
 			return true
 		}
 		u.mu.Lock()
@@ -296,7 +308,7 @@ func (u *Updater) showAgents(ctx context.Context, messageID int64) {
 			_, snap, err = u.agents.Snapshot(ctx, a.ID)
 		}
 		if err != nil {
-			lines = append(lines, fmt.Sprintf("🔴 %s：连接失败", a.Name), "错误："+err.Error(), "")
+			lines = append(lines, fmt.Sprintf("🔴 %s：连接失败", a.Name), "错误："+friendlyError(err), "")
 		} else {
 			lines = append(lines, fmt.Sprintf("🟢 %s：%d 个项目 · %d/%d 容器运行中", a.Name, snap.Totals.Projects, snap.Totals.Running, snap.Totals.Containers))
 		}
@@ -322,7 +334,7 @@ func (u *Updater) showAgent(ctx context.Context, messageID int64, agentID string
 		_, snap, err = u.agents.Snapshot(ctx, agentID)
 	}
 	if err != nil {
-		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 获取远程 VPS 失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取远程 VPS 失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
 		return
 	}
 	lines := []string{fmt.Sprintf("🌐 %s", snap.Name), "", fmt.Sprintf("项目：%d 个 · 运行中：%d/%d 个容器", snap.Totals.Projects, snap.Totals.Running, snap.Totals.Containers), "", "选择项目查看状态和操作。"}
@@ -346,9 +358,109 @@ func (u *Updater) showAgent(ctx context.Context, messageID int64, agentID string
 	if len(projectButtons) > 0 {
 		rows = append(rows, projectButtons)
 	}
-	rows = append(rows, []telegram.Button{{Text: "刷新", Data: "agent:" + agentID}, {Text: "返回远程列表", Data: "agents"}})
-	rows = append(rows, []telegram.Button{{Text: "返回主界面", Data: "main"}})
+	rows = append(rows, []telegram.Button{{Text: "刷新", Data: "agent:" + agentID}, {Text: "🗑 删除服务器", Data: "adelask:" + agentID}})
+	rows = append(rows, []telegram.Button{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}})
 	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, strings.Join(lines, "\n"), telegram.Keyboard(rows))
+}
+
+func (u *Updater) confirmAgentDelete(ctx context.Context, cb telegram.Callback, agentID string) {
+	agentCfg, ok := u.findAgent(agentID)
+	if !ok {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "服务器不存在")
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "❌ 远程 VPS 不存在", telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		return
+	}
+	if u.store == nil {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "当前配置不支持删除")
+		return
+	}
+	token := randomToken()
+	u.mu.Lock()
+	u.confirmAgents[token] = confirmAgentDelete{Token: token, Agent: agentCfg, MessageID: cb.MessageID, CreatedAt: time.Now()}
+	u.mu.Unlock()
+	cmd := "cd /opt/dockup && docker compose down"
+	cleanCmd := "rm -rf /opt/dockup"
+	text := fmt.Sprintf("⚠️ 删除远程 VPS？\n\n服务器：%s\n\n请先在这台远端服务器上执行：\n\n```bash\n%s\n```\n\n这只会停止并删除 dockup-agent 容器，不会删除数据目录。\n如果确认 `/opt/dockup` 里没有你要保留的内容，再单独执行清理命令：\n\n```bash\n%s\n```\n\n执行完成后，点下面按钮。DockUP 会检查 Agent 是否已经离线；确认连不上后才会备份并删除本机 JSON 里的服务器记录。\n\n如果这台机器已经没了，也可以强制只删除本机记录。", agentCfg.Name, cmd, cleanCmd)
+	rows := [][]telegram.Button{
+		{{Text: "我已执行，检查并删除", Data: "adelcheck:" + token}},
+		{{Text: "强制只删除本机记录", Data: "adelconfirm:" + token}},
+		{{Text: "取消", Data: "agent:" + agentID}},
+	}
+	_ = u.bot.AnswerCallback(ctx, cb.ID, "请先在远端执行卸载命令")
+	_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, text, telegram.Keyboard(rows))
+}
+
+func (u *Updater) executeAgentDelete(ctx context.Context, cb telegram.Callback, token string) {
+	p, ok := u.getPendingAgentDelete(token)
+	if !ok {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "删除确认已过期")
+		return
+	}
+	if u.agentStillOnline(ctx, p.Agent) {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "Agent 仍在线，未删除")
+		text := fmt.Sprintf("⚠️ Agent 仍然在线，暂不删除本机记录。\n\n服务器：%s\n\n请确认已在远端执行卸载命令，或远端机器已关停后再检查。", p.Agent.Name)
+		rows := [][]telegram.Button{
+			{{Text: "再次检查并删除", Data: "adelcheck:" + token}},
+			{{Text: "强制只删除本机记录", Data: "adelconfirm:" + token}},
+			{{Text: "取消", Data: "agent:" + p.Agent.ID}},
+		}
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, text, telegram.Keyboard(rows))
+		return
+	}
+	u.removeAgentRecord(ctx, cb, token, p.Agent, "✅ Agent 已离线，已删除本机记录")
+}
+
+func (u *Updater) forceAgentDelete(ctx context.Context, cb telegram.Callback, token string) {
+	p, ok := u.getPendingAgentDelete(token)
+	if !ok {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "删除确认已过期")
+		return
+	}
+	u.removeAgentRecord(ctx, cb, token, p.Agent, "✅ 已强制删除本机记录")
+}
+
+func (u *Updater) getPendingAgentDelete(token string) (confirmAgentDelete, bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	p, ok := u.confirmAgents[token]
+	if !ok || time.Since(p.CreatedAt) > 30*time.Minute {
+		delete(u.confirmAgents, token)
+		return confirmAgentDelete{}, false
+	}
+	return p, true
+}
+
+func (u *Updater) agentStillOnline(ctx context.Context, a config.AgentConfig) bool {
+	if a.Mode == "reverse" && u.reverse != nil {
+		if u.reverse.IsOnline(a.ID) {
+			return true
+		}
+		_, err := u.reverse.Snapshot(ctx, a)
+		return err == nil
+	}
+	if u.agents != nil {
+		_, _, err := u.agents.Snapshot(ctx, a.ID)
+		return err == nil
+	}
+	return false
+}
+
+func (u *Updater) removeAgentRecord(ctx context.Context, cb telegram.Callback, token string, a config.AgentConfig, title string) {
+	if u.store == nil {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "当前配置不支持删除")
+		return
+	}
+	if err := u.store.RemoveServer(a.ID); err != nil {
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "删除失败")
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 删除失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		return
+	}
+	u.mu.Lock()
+	delete(u.confirmAgents, token)
+	u.mu.Unlock()
+	u.refreshAgents()
+	_ = u.bot.AnswerCallback(ctx, cb.ID, "已删除")
+	_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, fmt.Sprintf("%s：%s", title, a.Name), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
 }
 
 func (u *Updater) showRemoteProject(ctx context.Context, messageID int64, raw string) {
@@ -370,7 +482,7 @@ func (u *Updater) showRemoteProject(ctx context.Context, messageID int64, raw st
 		_, snap, err = u.agents.Snapshot(ctx, agentID)
 	}
 	if err != nil {
-		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 获取远程 VPS 失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取远程 VPS 失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
 		return
 	}
 	for _, p := range snap.Projects {
@@ -460,7 +572,7 @@ func (u *Updater) handleRemoteProjectAction(ctx context.Context, cb telegram.Cal
 		err = u.agents.ProjectAction(ctx, agentID, key, action)
 	}
 	if err != nil {
-		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "❌ 远程操作失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回项目", Data: "rproject:" + agentID + ":" + key}, {Text: "返回远程列表", Data: "agents"}}}))
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 远程操作失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回项目", Data: "rproject:" + agentID + ":" + key}, {Text: "返回远程列表", Data: "agents"}}}))
 		return
 	}
 	u.showRemoteProject(ctx, cb.MessageID, agentID+":"+key)
@@ -676,7 +788,7 @@ func (u *Updater) handleProjectAction(ctx context.Context, cb telegram.Callback)
 			err = u.docker.RestartContainer(ctx, c.ID)
 		}
 		if err != nil {
-			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "❌ 操作失败\n\n错误："+err.Error(), telegram.Keyboard([][]telegram.Button{{{Text: "返回项目", Data: "project:" + p.Key}, {Text: "返回列表", Data: "home"}}, {{Text: "返回主界面", Data: "main"}}}))
+			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 操作失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回项目", Data: "project:" + p.Key}, {Text: "返回列表", Data: "home"}}, {{Text: "返回主界面", Data: "main"}}}))
 			return
 		}
 	}
@@ -713,7 +825,7 @@ func (u *Updater) executeProjectDelete(ctx context.Context, cb telegram.Callback
 	_ = u.bot.AnswerCallback(ctx, cb.ID, "正在删除")
 	for _, c := range p.Project.Containers {
 		if err := u.docker.DeleteContainer(ctx, c.ID); err != nil {
-			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "❌ 删除失败\n\n错误："+err.Error(), navKeyboard())
+			_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 删除失败", err), navKeyboard())
 			return
 		}
 	}

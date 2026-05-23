@@ -23,7 +23,10 @@
 - **Remote Agents also join the 12-hour automatic update check and notify through the server Telegram bot**
 - **Detects Docker containers and Compose projects**
 - **Manually checks one project and updates immediately**
-- **Supports start / stop / restart / delete with confirmation**
+- **Supports start / stop / restart / project deletion with confirmation**
+- **Supports remote VPS removal: shows an Agent uninstall command, then removes the local record after the Agent is offline**
+- **Automatically backs up the config before removing remote VPS records**
+- **Filters Telegram commands and button callbacks by `TG_CHAT_ID`**
 - **Temporarily changes the automatic check interval from Telegram**
 - **Recreates containers with their original configuration**
 - **Attempts rollback if an approved update fails to start**
@@ -32,6 +35,8 @@
 - **DockUP also checks and updates itself through a temporary helper container**
 
 DockUP does not provide a web UI, Slack/email/Teams notifications, or volume deletion. Automatic and manual checks both use Telegram approval buttons when updates are found. Remote VPS hosts connect through **Agents that actively dial back to the server**, so remote hosts do not need to expose an Agent management port. The server checks both local Docker and all remote Agents with the same `CHECK_INTERVAL`; default is 12 hours.
+
+> When removing a remote VPS, DockUP does not execute arbitrary remote commands. The bot shows a fixed uninstall command for the user to run on the remote host. After the Agent is offline, the server backs up and removes the local record.
 ---
 
 ## 🚀 Quick Start
@@ -105,6 +110,30 @@ After the first deployment, DockUP manages only the local host by default. Open 
 
 Paired servers are persisted in `DOCKUP_DATA`, default `/data/dockup.json`.
 
+### Remove a remote VPS
+
+Open **🌐 Remote VPS**, enter the server detail page, and click **🗑 Delete Server**.
+
+DockUP first shows the remote uninstall command:
+
+```bash
+cd /opt/dockup && docker compose down
+```
+
+If you are sure `/opt/dockup` has no content you want to keep, you may clean the directory manually:
+
+```bash
+rm -rf /opt/dockup
+```
+
+After running the command, return to the bot and click **I have run it, check and delete**. DockUP checks that the Agent is offline, then backs up and removes the local server record. If the remote machine is already gone, you can use **force remove local record only**.
+
+Before removing a server record, DockUP automatically backs up `DOCKUP_DATA` under the sibling `backups/` directory, for example:
+
+```text
+/data/backups/dockup.json.20260523-114500.bak
+```
+
 ### Optional static remote VPS configuration
 
 Telegram pairing is the recommended path. You can also preconfigure remote Agents in the server `.env`:
@@ -130,7 +159,7 @@ For active reverse Agent mode, `agent_url` may be empty. The legacy passive HTTP
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TG_BOT_TOKEN` | empty | Telegram Bot Token; notifications are disabled if empty |
-| `TG_CHAT_ID` | empty | Telegram Chat ID; notifications are disabled if empty |
+| `TG_CHAT_ID` | empty | Telegram Chat ID; notifications are disabled if empty; commands and button callbacks are also authorized against this ID |
 | `CHECK_INTERVAL` | `12h` | Check interval, Go duration format such as `30m`, `1h`, `12h` |
 | `TZ` | `Asia/Shanghai` | Time zone |
 | `CLEANUP` | `true` | Try to remove old images after approved successful updates |
@@ -162,6 +191,7 @@ The management panel supports:
 - Manually checking one project and updating immediately
 - Starting, stopping, and restarting projects
 - Delete confirmation before removing containers
+- Remote VPS removal with a fixed uninstall command and local record deletion after the Agent is offline
 - Temporarily changing the automatic check interval
 
 ---
@@ -195,6 +225,8 @@ That means:
 - A bad upstream image may still break your service if you approve the update
 - Core services such as databases, reverse proxies, and dashboards should be reviewed before clicking Update
 - Mounting `/var/run/docker.sock` gives DockUP Docker management access on the host
+- Telegram commands and button callbacks are accepted only from the configured `TG_CHAT_ID`
+- Removing a remote VPS does not execute arbitrary remote commands; DockUP only shows a fixed uninstall command and the user runs it on the remote host
 
 If you need allowlists, complex approval workflows, multiple notification channels, or orchestration, DockUP is not the right tool. It is designed to stay small and simple as a Telegram Docker manager + update notifier.
 

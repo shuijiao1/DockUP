@@ -22,6 +22,8 @@ type Callback struct {
 	ID        string
 	Data      string
 	MessageID int64
+	ChatID    string
+	UserID    string
 	Text      string
 }
 
@@ -45,14 +47,26 @@ type update struct {
 type callbackQuery struct {
 	ID      string `json:"id"`
 	Data    string `json:"data"`
+	From    *user  `json:"from"`
 	Message *struct {
 		MessageID int64 `json:"message_id"`
+		Chat      *chat `json:"chat"`
 	} `json:"message"`
 }
 
 type message struct {
 	MessageID int64  `json:"message_id"`
 	Text      string `json:"text"`
+	Chat      *chat  `json:"chat"`
+	From      *user  `json:"from"`
+}
+
+type chat struct {
+	ID int64 `json:"id"`
+}
+
+type user struct {
+	ID int64 `json:"id"`
 }
 
 func New(token, chatID string) *Bot {
@@ -61,6 +75,16 @@ func New(token, chatID string) *Bot {
 
 func (b *Bot) Enabled() bool {
 	return b != nil && b.token != "" && b.chatID != ""
+}
+
+func (b *Bot) authorized(chatID, userID string) bool {
+	if b == nil {
+		return false
+	}
+	allowed := strings.TrimPrefix(strings.TrimSpace(b.chatID), "telegram:")
+	chatID = strings.TrimPrefix(strings.TrimSpace(chatID), "telegram:")
+	userID = strings.TrimPrefix(strings.TrimSpace(userID), "telegram:")
+	return allowed != "" && (chatID == allowed || userID == allowed)
 }
 
 func (b *Bot) Send(ctx context.Context, text string) error {
@@ -192,24 +216,47 @@ func (b *Bot) PollCallbacks(ctx context.Context, out chan<- Callback) error {
 			}
 			if u.CallbackQuery != nil && u.CallbackQuery.Data != "" {
 				msgID := int64(0)
+				chatID := ""
 				if u.CallbackQuery.Message != nil {
 					msgID = u.CallbackQuery.Message.MessageID
+					if u.CallbackQuery.Message.Chat != nil {
+						chatID = fmt.Sprintf("%d", u.CallbackQuery.Message.Chat.ID)
+					}
+				}
+				userID := ""
+				if u.CallbackQuery.From != nil {
+					userID = fmt.Sprintf("%d", u.CallbackQuery.From.ID)
+				}
+				if !b.authorized(chatID, userID) {
+					_ = b.AnswerCallback(ctx, u.CallbackQuery.ID, "未授权")
+					continue
 				}
 				select {
-				case out <- Callback{ID: u.CallbackQuery.ID, Data: u.CallbackQuery.Data, MessageID: msgID}:
+				case out <- Callback{ID: u.CallbackQuery.ID, Data: u.CallbackQuery.Data, MessageID: msgID, ChatID: chatID, UserID: userID}:
 				case <-ctx.Done():
 					return ctx.Err()
 				}
 				continue
 			}
 			if u.Message != nil {
+				chatID := ""
+				if u.Message.Chat != nil {
+					chatID = fmt.Sprintf("%d", u.Message.Chat.ID)
+				}
+				userID := ""
+				if u.Message.From != nil {
+					userID = fmt.Sprintf("%d", u.Message.From.ID)
+				}
+				if !b.authorized(chatID, userID) {
+					continue
+				}
 				cmd := normalizeCommand(u.Message.Text)
 				data := "msg"
 				if cmd != "" {
 					data = "cmd:" + cmd
 				}
 				select {
-				case out <- Callback{Data: data, MessageID: u.Message.MessageID, Text: u.Message.Text}:
+				case out <- Callback{Data: data, MessageID: u.Message.MessageID, ChatID: chatID, UserID: userID, Text: u.Message.Text}:
 				case <-ctx.Done():
 					return ctx.Err()
 				}

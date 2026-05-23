@@ -52,6 +52,13 @@ func (c *Client) ProjectAction(ctx context.Context, a config.AgentConfig, key, a
 	return err
 }
 
+func (c *Client) IsOnline(id string) bool {
+	if c == nil || c.hub == nil {
+		return false
+	}
+	return c.hub.IsOnline(id)
+}
+
 func (c *Client) UpdateContainer(ctx context.Context, a config.AgentConfig, containerID, image string, cleanup bool) error {
 	_, err := c.hub.Request(ctx, a.ID, fmt.Sprintf("/v1/containers/%s/update", containerID), map[string]any{"image": image, "cleanup": cleanup})
 	return err
