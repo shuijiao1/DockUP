@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.15
+
+- Fixed remote Agent self-updates hanging batch updates. Agents now acknowledge self-update requests before starting the helper container, avoiding reverse-connection EOF stalls during “update all”.
+
 ## v0.6.14
 
 - Improved Telegram button responsiveness: callbacks are handled asynchronously, so update scans no longer block normal button navigation.

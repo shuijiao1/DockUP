@@ -152,12 +152,15 @@ func (s *Server) handleContainerUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isCurrentContainerID(id) {
-		helperID, err := s.docker.RunSelfUpdateHelper(r.Context(), req.Image, id, req.Image, req.Cleanup)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]any{"ok": true, "self_update": true, "helper_id": helperID})
+		writeJSON(w, map[string]any{"ok": true, "self_update": true, "queued": true})
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			time.Sleep(500 * time.Millisecond)
+			if _, err := s.docker.RunSelfUpdateHelper(ctx, req.Image, id, req.Image, req.Cleanup); err != nil {
+				s.log.Warn("remote self update helper failed", "container", id, "image", req.Image, "error", err)
+			}
+		}()
 		return
 	}
 	oldID, newID, err := s.docker.UpdateContainer(r.Context(), id, req.Image, req.Cleanup)
