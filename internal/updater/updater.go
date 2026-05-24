@@ -168,7 +168,7 @@ func (u *Updater) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case cb := <-callbacks:
-			u.handleCallback(ctx, cb)
+			go u.handleCallback(ctx, cb)
 		case <-pairTicker.C:
 			u.checkPendingPairs(ctx)
 		case <-tick:

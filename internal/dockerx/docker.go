@@ -24,13 +24,16 @@ type ContainerInfo struct {
 	Name    string
 	Image   string
 	ImageID string
+	State   string
 }
 
 type listItem struct {
-	ID      string   `json:"Id"`
-	Names   []string `json:"Names"`
-	Image   string   `json:"Image"`
-	ImageID string   `json:"ImageID"`
+	ID      string            `json:"Id"`
+	Names   []string          `json:"Names"`
+	Image   string            `json:"Image"`
+	ImageID string            `json:"ImageID"`
+	State   string            `json:"State"`
+	Labels  map[string]string `json:"Labels"`
 }
 
 type createResp struct {

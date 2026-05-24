@@ -95,6 +95,10 @@ func imageVersionLabel(data map[string]any) string {
 }
 
 func (c *Client) InspectImageVersionByID(ctx context.Context, imageID string) (ImageVersion, error) {
+	return c.InspectImageVersionByIDWithRef(ctx, imageID, "")
+}
+
+func (c *Client) InspectImageVersionByIDWithRef(ctx context.Context, imageID, imageRef string) (ImageVersion, error) {
 	imageID = strings.TrimSpace(imageID)
 	if imageID == "" {
 		return ImageVersion{}, fmt.Errorf("empty image id")
@@ -105,6 +109,23 @@ func (c *Client) InspectImageVersionByID(ctx context.Context, imageID string) (I
 	}
 	if v.ID == "" {
 		v.ID = imageID
+	}
+	imageRef = strings.TrimSpace(imageRef)
+	if v.Ref == "" {
+		v.Ref = imageRef
+	}
+	if v.Tag == "" && imageRef != "" {
+		if refVersion, err := c.InspectImageVersion(ctx, imageRef); err == nil {
+			if v.Digest == "" {
+				v.Digest = refVersion.Digest
+			}
+			if v.Tag == "" {
+				v.Tag = refVersion.Tag
+			}
+			if v.Ref == "" {
+				v.Ref = refVersion.Ref
+			}
+		}
 	}
 	return v, nil
 }

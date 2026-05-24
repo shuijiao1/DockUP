@@ -240,8 +240,7 @@ func (u *Updater) showHome(ctx context.Context, messageID int64) {
 	running := 0
 	for _, p := range projects {
 		for _, c := range p.Containers {
-			d, err := u.docker.ContainerDetail(ctx, c.ID)
-			if err == nil && d.State == "running" {
+			if c.State == "running" {
 				running++
 			}
 		}
@@ -679,6 +678,7 @@ func splitRemoteKey(raw string) (agentID, key string, ok bool) {
 }
 
 func (u *Updater) showProject(ctx context.Context, messageID int64, key string) {
+	_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "⏳ 正在读取本机 Docker 项目…", nil)
 	p, err := u.docker.Project(ctx, key)
 	if err != nil {
 		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, "❌ 项目不存在", navKeyboard())

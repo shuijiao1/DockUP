@@ -58,27 +58,28 @@ func (c *Client) AllContainers(ctx context.Context) ([]ContainerInfo, error) {
 }
 
 func (c *Client) Projects(ctx context.Context) ([]ProjectInfo, error) {
-	containers, err := c.AllContainers(ctx)
-	if err != nil {
+	var items []listItem
+	if err := c.doJSON(ctx, http.MethodGet, "/containers/json?all=true", nil, &items); err != nil {
 		return nil, err
 	}
 	projects := map[string]*ProjectInfo{}
-	for _, ci := range containers {
-		d, err := c.ContainerDetail(ctx, ci.ID)
-		if err != nil {
-			continue
-		}
+	for _, item := range items {
+		ci := containerInfoFromListItem(item)
 		key := ci.ID[:12]
 		name := ci.Name
 		typ := "docker"
-		if d.Project != "" {
-			key = "compose:" + d.Project
-			name = d.Project
+		workingDir := ""
+		configFile := ""
+		if project := item.Labels["com.docker.compose.project"]; project != "" {
+			key = "compose:" + project
+			name = project
 			typ = "compose"
+			workingDir = item.Labels["com.docker.compose.project.working_dir"]
+			configFile = item.Labels["com.docker.compose.project.config_files"]
 		}
 		p := projects[key]
 		if p == nil {
-			p = &ProjectInfo{Key: key, Name: name, Type: typ, WorkingDir: d.WorkingDir, ConfigFile: d.ConfigFile}
+			p = &ProjectInfo{Key: key, Name: name, Type: typ, WorkingDir: workingDir, ConfigFile: configFile}
 			projects[key] = p
 		}
 		p.Containers = append(p.Containers, ci)
@@ -147,10 +148,9 @@ func (c *Client) ContainerDetail(ctx context.Context, id string) (ContainerDetai
 	if health, _ := state["Health"].(map[string]any); health != nil {
 		d.Health = str(health["Status"])
 	}
-	if v, err := c.InspectImageVersionByID(ctx, d.Info.ImageID); err == nil {
+	if v, err := c.InspectImageVersionByIDWithRef(ctx, d.Info.ImageID, d.Info.Image); err == nil {
 		d.Version = v
 	}
-	_ = c.fillStats(ctx, &d)
 	return d, nil
 }
 
@@ -206,20 +206,15 @@ func (c *Client) DeleteContainer(ctx context.Context, id string) error {
 }
 
 func (c *Client) containerInfoFromListItem(ctx context.Context, item listItem) ContainerInfo {
+	return containerInfoFromListItem(item)
+}
+
+func containerInfoFromListItem(item listItem) ContainerInfo {
 	name := item.ID[:12]
 	if len(item.Names) > 0 {
 		name = strings.TrimPrefix(item.Names[0], "/")
 	}
-	imageRef := item.Image
-	var inspect map[string]any
-	if err := c.doJSON(ctx, http.MethodGet, "/containers/"+url.PathEscape(item.ID)+"/json", nil, &inspect); err == nil {
-		if cfg, _ := inspect["Config"].(map[string]any); cfg != nil {
-			if img := str(cfg["Image"]); img != "" {
-				imageRef = img
-			}
-		}
-	}
-	return ContainerInfo{ID: item.ID, Name: name, Image: imageRef, ImageID: item.ImageID}
+	return ContainerInfo{ID: item.ID, Name: name, Image: item.Image, ImageID: item.ImageID, State: item.State}
 }
 
 func formatPorts(raw any) string {

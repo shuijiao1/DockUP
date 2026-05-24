@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.14
+
+- Improved Telegram button responsiveness: callbacks are handled asynchronously, so update scans no longer block normal button navigation.
+- Made the local Docker project list faster by grouping projects from Docker list metadata instead of inspecting every container.
+- Improved Docker detail version detection for `latest` images without version labels by using the original image reference plus digest lookup, so images such as `xream/sub-store` can resolve to concrete tags like `2.23.21`.
+
 ## v0.6.13
 
 - Fixed Docker detail version detection for images inspected by image ID (`sha256:...`). DockUP now prefers semantic version labels like `v0.6.10` instead of treating the sha256 ID as a tag.
