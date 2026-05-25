@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.16
+
+- Fixed update detection for Compose-managed containers whose Docker list image is reported as a `sha256:...` image ID. DockUP now resolves the original container image reference before pulling, so services such as `xream/sub-store` are detected correctly again.
+- Applied the same image-reference fallback to local automatic checks, manual project checks, and remote Agent checks.
+
 ## v0.6.15
 
 - Fixed remote Agent self-updates hanging batch updates. Agents now acknowledge self-update requests before starting the helper container, avoiding reverse-connection EOF stalls during “update all”.

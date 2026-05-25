@@ -929,7 +929,7 @@ func (u *Updater) manualProjectCheck(ctx context.Context, messageID int64, key s
 }
 
 func (u *Updater) checkContainerVersions(ctx context.Context, c dockerx.ContainerInfo) (dockerx.ImageVersion, dockerx.ImageVersion, error) {
-	oldVersion, err := u.docker.InspectImageVersionByID(ctx, c.ImageID)
+	oldVersion, err := u.docker.InspectImageVersionByIDWithRef(ctx, c.ImageID, c.Image)
 	if err != nil {
 		return oldVersion, dockerx.ImageVersion{}, err
 	}

@@ -64,7 +64,7 @@ func (c *Client) Projects(ctx context.Context) ([]ProjectInfo, error) {
 	}
 	projects := map[string]*ProjectInfo{}
 	for _, item := range items {
-		ci := containerInfoFromListItem(item)
+		ci := c.containerInfoFromListItem(ctx, item)
 		key := ci.ID[:12]
 		name := ci.Name
 		typ := "docker"
@@ -206,7 +206,13 @@ func (c *Client) DeleteContainer(ctx context.Context, id string) error {
 }
 
 func (c *Client) containerInfoFromListItem(ctx context.Context, item listItem) ContainerInfo {
-	return containerInfoFromListItem(item)
+	ci := containerInfoFromListItem(item)
+	if !isPullable(ci.Image) {
+		if image := c.resolveContainerImageRef(ctx, item.ID); image != "" {
+			ci.Image = image
+		}
+	}
+	return ci
 }
 
 func containerInfoFromListItem(item listItem) ContainerInfo {

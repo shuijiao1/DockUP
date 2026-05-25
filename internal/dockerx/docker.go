@@ -64,6 +64,19 @@ func (c *Client) RunningContainers(ctx context.Context) ([]ContainerInfo, error)
 	return out, nil
 }
 
+func (c *Client) resolveContainerImageRef(ctx context.Context, id string) string {
+	if id == "" {
+		return ""
+	}
+	var inspect map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, &inspect); err != nil {
+		c.log.Debug("resolve container image ref failed", "container", id, "error", err)
+		return ""
+	}
+	cfg, _ := inspect["Config"].(map[string]any)
+	return strings.TrimSpace(str(cfg["Image"]))
+}
+
 func (c *Client) PullImage(ctx context.Context, ref string) error {
 	if !isPullable(ref) {
 		return fmt.Errorf("image %q is not tag based, skip", ref)
