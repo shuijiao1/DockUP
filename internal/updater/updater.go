@@ -150,9 +150,11 @@ func (u *Updater) Run(ctx context.Context) error {
 	if u.bot.Enabled() {
 		u.sendMainMenu(ctx)
 	}
-	if err := u.CheckOnce(ctx); err != nil {
-		u.log.Error("initial check failed", "error", err)
-	}
+	go func() {
+		if err := u.CheckOnce(ctx); err != nil {
+			u.log.Error("initial check failed", "error", err)
+		}
+	}()
 	pairTicker := time.NewTicker(10 * time.Second)
 	defer pairTicker.Stop()
 

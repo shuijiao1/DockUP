@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.1
+
+- Fixed Telegram commands and buttons becoming unresponsive while the startup update check is still running. The initial check now runs in the background so the bot can process polling updates immediately after boot.
+
 ## v0.7.0
 
 - Fixed remote Agent self-updates on reverse-connected VPS nodes. The temporary self-update helper now shares the target Agent container network namespace, so it can preserve the reverse connection long enough to recreate and restart the Agent cleanly instead of leaving it stopped.
