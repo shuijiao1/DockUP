@@ -185,7 +185,7 @@ func (c *Client) RunSelfUpdateHelper(ctx context.Context, helperImage, targetID,
 		"HostConfig": map[string]any{
 			"Binds":       []string{"/var/run/docker.sock:/var/run/docker.sock"},
 			"AutoRemove":  true,
-			"NetworkMode": "bridge",
+			"NetworkMode": "container:" + targetID,
 		},
 	}
 	var created createResp

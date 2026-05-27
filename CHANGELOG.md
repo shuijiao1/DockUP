@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.0
+
+- Fixed remote Agent self-updates on reverse-connected VPS nodes. The temporary self-update helper now shares the target Agent container network namespace, so it can preserve the reverse connection long enough to recreate and restart the Agent cleanly instead of leaving it stopped.
+
 ## v0.6.16
 
 - Fixed update detection for Compose-managed containers whose Docker list image is reported as a `sha256:...` image ID. DockUP now resolves the original container image reference before pulling, so services such as `xream/sub-store` are detected correctly again.
