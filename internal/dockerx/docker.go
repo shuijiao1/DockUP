@@ -106,6 +106,15 @@ func (c *Client) InspectImageID(ctx context.Context, ref string) (string, error)
 }
 
 func (c *Client) UpdateContainer(ctx context.Context, id string, imageRef string, cleanup bool) (oldID, newID string, err error) {
+	if imageRef != "" {
+		if err := c.PullImage(ctx, imageRef); err != nil {
+			return "", "", fmt.Errorf("pull target image %s: %w", imageRef, err)
+		}
+		if _, err := c.InspectImageID(ctx, imageRef); err != nil {
+			return "", "", fmt.Errorf("inspect target image %s: %w", imageRef, err)
+		}
+	}
+
 	var inspect map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, &inspect); err != nil {
 		return "", "", err
@@ -163,11 +172,19 @@ func (c *Client) UpdateContainer(ctx context.Context, id string, imageRef string
 		c.log.Warn("failed to remove backup container", "container", backupName, "error", err)
 	}
 	if cleanup && oldImageID != "" {
-		if err := c.delete(ctx, "/images/"+url.PathEscape(oldImageID)+"?force=false&noprune=false"); err != nil {
-			c.log.Warn("failed to remove old image", "image", oldImageID, "error", err)
-		}
+		c.cleanupImageAsync(oldImageID)
 	}
 	return oldID, newID, nil
+}
+
+func (c *Client) cleanupImageAsync(imageID string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := c.delete(ctx, "/images/"+url.PathEscape(imageID)+"?force=false&noprune=false"); err != nil {
+			c.log.Warn("failed to remove old image", "image", imageID, "error", err)
+		}
+	}()
 }
 
 func (c *Client) RunSelfUpdateHelper(ctx context.Context, helperImage, targetID, targetImage string, cleanup bool) (string, error) {

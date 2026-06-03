@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.2
+
+- Fixed confirmed container updates failing when the target image was pulled during the update check but later removed by Docker cleanup before the user clicked update. DockUP now re-pulls and verifies the target image immediately before recreating the container.
+- Fixed successful updates appearing stuck on “updating” while old image cleanup was still running. Old image cleanup now runs in the background after the new container has been recreated and started.
+
 ## v0.7.1
 
 - Fixed Telegram commands and buttons becoming unresponsive while the startup update check is still running. The initial check now runs in the background so the bot can process polling updates immediately after boot.
