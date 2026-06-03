@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.5
+
+- 修复无版本 Label 的 Docker Hub 镜像版本显示，例如 `xream/sub-store` 可显示 `2.24.1`。
+- 优化 `latest` 镜像更新识别，减少有更新但页面显示不准确的问题。
+
 ## v0.7.4
 
 - 支持 GHCR 版本 tag 反查。
