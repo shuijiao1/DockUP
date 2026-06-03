@@ -225,20 +225,27 @@ func (c *Client) RemoteImageVersion(ctx context.Context, ref string) (ImageVersi
 }
 
 func (c *Client) LookupVersionTag(ctx context.Context, ref, digest string) (string, error) {
-	repo, err := dockerHubRepo(ref)
-	if err != nil {
-		return "", err
-	}
 	digest = canonicalDigest(digest)
 	if digest == "" {
 		return "", fmt.Errorf("empty digest")
+	}
+	if registry, repo, ok := registryRepo(ref); ok && registry == "ghcr.io" {
+		return lookupOCIRegistryVersionTag(ctx, registry, repo, digest)
+	}
+	return lookupDockerHubVersionTag(ctx, ref, digest)
+}
+
+func lookupDockerHubVersionTag(ctx context.Context, ref, digest string) (string, error) {
+	repo, err := dockerHubRepo(ref)
+	if err != nil {
+		return "", err
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/tags?page_size=100", repo)
 	candidates := []string{}
 
-	for page := 0; page < 5 && url != ""; page++ {
+	for page := 0; page < 8 && url != ""; page++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return "", err
@@ -285,6 +292,93 @@ func (c *Client) LookupVersionTag(ctx context.Context, ref, digest string) (stri
 	return candidates[0], nil
 }
 
+func lookupOCIRegistryVersionTag(ctx context.Context, registry, repo, digest string) (string, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	tokenURL := fmt.Sprintf("https://%s/token?service=%s&scope=%s", registry, registry, url.QueryEscape("repository:"+repo+":pull"))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("registry token request failed: %s", resp.Status)
+	}
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", err
+	}
+	if tokenResp.Token == "" {
+		return "", fmt.Errorf("empty registry token")
+	}
+
+	tagsURL := fmt.Sprintf("https://%s/v2/%s/tags/list?n=1000", registry, repo)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, tagsURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+tokenResp.Token)
+	resp, err = client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	body, _ = io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("registry tags request failed: %s", resp.Status)
+	}
+	var tagsResp struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal(body, &tagsResp); err != nil {
+		return "", err
+	}
+	candidates := []string{}
+	for _, tag := range tagsResp.Tags {
+		if tag == "" || tag == "latest" || strings.HasSuffix(tag, "-latest") || isBareDigestTag(tag) {
+			continue
+		}
+		if !semverTagRE.MatchString(tag) {
+			continue
+		}
+		manifestURL := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registry, repo, url.PathEscape(tag))
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+tokenResp.Token)
+		req.Header.Set("Accept", strings.Join([]string{
+			"application/vnd.oci.image.index.v1+json",
+			"application/vnd.docker.distribution.manifest.list.v2+json",
+			"application/vnd.oci.image.manifest.v1+json",
+			"application/vnd.docker.distribution.manifest.v2+json",
+		}, ", "))
+		resp, err = client.Do(req)
+		if err != nil {
+			continue
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		tagDigest := resp.Header.Get("Docker-Content-Digest")
+		resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && canonicalDigest(tagDigest) == digest {
+			candidates = append(candidates, tag)
+		}
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no matching tag found for %s", digest)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return tagScore(candidates[i]) > tagScore(candidates[j])
+	})
+	return candidates[0], nil
+}
+
 type digestImage struct{ Digest string }
 
 func tagMatchesDigest(tagDigest string, images []digestImage, digest string) bool {
@@ -311,6 +405,24 @@ func tagScore(tag string) int {
 		score -= 50
 	}
 	return score
+}
+
+func registryRepo(ref string) (string, string, bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.Contains(ref, "://") || strings.Contains(ref, "@") {
+		return "", "", false
+	}
+	parts := strings.Split(ref, "/")
+	if len(parts) < 2 || !strings.Contains(parts[0], ".") {
+		return "", "", false
+	}
+	registry := parts[0]
+	last := parts[len(parts)-1]
+	if i := strings.LastIndex(last, ":"); i >= 0 {
+		last = last[:i]
+		parts[len(parts)-1] = last
+	}
+	return registry, strings.Join(parts[1:], "/"), true
 }
 
 func dockerHubRepo(ref string) (string, error) {

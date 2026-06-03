@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.4
+
+- 支持 GHCR 版本 tag 反查。
+- 优化 latest 镜像版本显示。
+
 ## v0.7.3
 
 - 优化 Sub-Store 版本显示。
