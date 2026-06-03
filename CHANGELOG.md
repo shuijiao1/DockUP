@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.3
+
+- 优化 Sub-Store 版本显示。
+- 修复 latest 镜像更新检测。
+
 ## v0.7.2
 
 - Fixed confirmed container updates failing when the target image was pulled during the update check but later removed by Docker cleanup before the user clicked update. DockUP now re-pulls and verifies the target image immediately before recreating the container.

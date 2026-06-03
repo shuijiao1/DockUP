@@ -936,10 +936,7 @@ func (u *Updater) checkContainerVersions(ctx context.Context, c dockerx.Containe
 	if oldVersion.ID == "" {
 		oldVersion.ID = c.ImageID
 	}
-	if err := u.docker.PullImage(ctx, c.Image); err != nil {
-		return oldVersion, dockerx.ImageVersion{}, err
-	}
-	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
+	newVersion, err := u.docker.RemoteImageVersion(ctx, c.Image)
 	return oldVersion, newVersion, err
 }
 

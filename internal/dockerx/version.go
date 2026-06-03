@@ -1,6 +1,7 @@
 package dockerx
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,23 +16,29 @@ import (
 
 var semverTagRE = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)
 var hexRE = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+var subStoreBundleVersionRE = regexp.MustCompile(`SUB_STORE(?:_BACKEND)?_VERSION:\s*(v?[0-9]+\.[0-9]+\.[0-9]+)`)
 
 type ImageVersion struct {
-	Ref    string
-	ID     string
-	Digest string
-	Tag    string
+	Ref       string
+	ID        string
+	Digest    string
+	Tag       string
+	RemoteTag string
 }
 
 func (v ImageVersion) Display() string {
 	id := shortID(v.ID)
-	if v.Tag == "" || isBareDigestTag(v.Tag) {
+	tag := strings.TrimSpace(v.Tag)
+	if tag == "" || isBareDigestTag(tag) {
+		tag = strings.TrimSpace(v.RemoteTag)
+	}
+	if tag == "" || isBareDigestTag(tag) {
 		return id
 	}
 	if id == "" {
-		return v.Tag
+		return tag
 	}
-	return fmt.Sprintf("%s (%s)", v.Tag, id)
+	return fmt.Sprintf("%s (%s)", tag, id)
 }
 
 func isBareDigestTag(tag string) bool {
@@ -114,18 +121,105 @@ func (c *Client) InspectImageVersionByIDWithRef(ctx context.Context, imageID, im
 	if v.Ref == "" {
 		v.Ref = imageRef
 	}
-	if v.Tag == "" && imageRef != "" {
-		if refVersion, err := c.InspectImageVersion(ctx, imageRef); err == nil {
-			if v.Digest == "" {
-				v.Digest = refVersion.Digest
-			}
-			if v.Tag == "" {
-				v.Tag = refVersion.Tag
-			}
-			if v.Ref == "" {
-				v.Ref = refVersion.Ref
-			}
+	if imageRef != "" {
+		if v.Ref == "" {
+			v.Ref = imageRef
 		}
+		c.EnrichRemoteVersionTag(ctx, &v, imageRef)
+	}
+	if v.Tag == "" && v.RemoteTag == "" {
+		c.EnrichBundledAppVersion(ctx, &v, imageRef)
+	}
+	return v, nil
+}
+
+func (c *Client) EnrichBundledAppVersion(ctx context.Context, v *ImageVersion, ref string) {
+	if v == nil || strings.TrimSpace(v.Tag) != "" {
+		return
+	}
+	if !strings.Contains(strings.ToLower(ref), "xream/sub-store") {
+		return
+	}
+	image := strings.TrimSpace(v.ID)
+	if image == "" {
+		image = strings.TrimSpace(v.Ref)
+	}
+	if image == "" {
+		return
+	}
+	if tag, err := c.readSubStoreBundleVersion(ctx, image); err == nil && tag != "" {
+		v.Tag = tag
+	}
+}
+
+func (c *Client) readSubStoreBundleVersion(ctx context.Context, image string) (string, error) {
+	body := map[string]any{
+		"Image": image,
+		"Cmd":   []string{"true"},
+	}
+	var created createResp
+	if err := c.doJSON(ctx, http.MethodPost, "/containers/create", body, &created); err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = c.delete(context.Background(), "/containers/"+url.PathEscape(created.ID)+"?force=true&v=false")
+	}()
+
+	resp, err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(created.ID)+"/archive?path="+url.QueryEscape("/opt/app/sub-store.bundle.js"), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	tr := tar.NewReader(io.LimitReader(resp.Body, 8<<20))
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if h.FileInfo().IsDir() {
+			continue
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, 256<<10))
+		if err != nil {
+			return "", err
+		}
+		if m := subStoreBundleVersionRE.FindStringSubmatch(string(b)); len(m) > 1 {
+			return m[1], nil
+		}
+	}
+	return "", fmt.Errorf("sub-store bundled version not found")
+}
+
+func (c *Client) EnrichRemoteVersionTag(ctx context.Context, v *ImageVersion, ref string) {
+	if v == nil || strings.TrimSpace(v.RemoteTag) != "" {
+		return
+	}
+	if strings.TrimSpace(ref) == "" {
+		ref = v.Ref
+	}
+	if strings.TrimSpace(ref) == "" || strings.TrimSpace(v.Digest) == "" {
+		return
+	}
+	if tag, err := c.LookupVersionTag(ctx, ref, v.Digest); err == nil {
+		v.RemoteTag = tag
+	}
+}
+
+func (c *Client) RemoteImageVersion(ctx context.Context, ref string) (ImageVersion, error) {
+	if err := c.PullImage(ctx, ref); err != nil {
+		return ImageVersion{}, err
+	}
+	v, err := c.InspectImageVersion(ctx, ref)
+	if err != nil {
+		return v, err
+	}
+	c.EnrichRemoteVersionTag(ctx, &v, ref)
+	if v.Tag == "" {
+		v.Tag = v.RemoteTag
 	}
 	return v, nil
 }

@@ -342,16 +342,12 @@ func (u *Updater) checkContainer(ctx context.Context, c dockerx.ContainerInfo, m
 	}
 
 	u.log.Info("pulling image", "container", c.Name, "image", c.Image)
-	if err := u.docker.PullImage(ctx, c.Image); err != nil {
+	newVersion, err := u.docker.RemoteImageVersion(ctx, c.Image)
+	if err != nil {
 		if isPullUnavailable(err) {
 			u.log.Info("container image is not pullable, skipped", "container", c.Name, "image", c.Image)
 			return "", nil, c.Name + "（本地镜像，无法从仓库 pull）", nil
 		}
-		return "", nil, "", err
-	}
-
-	newVersion, err := u.docker.InspectImageVersion(ctx, c.Image)
-	if err != nil {
 		return "", nil, "", err
 	}
 	if normalizeID(oldVersion.ID) == normalizeID(newVersion.ID) {
