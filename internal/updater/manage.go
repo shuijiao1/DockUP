@@ -32,8 +32,9 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		return true
 	}
 	if data == "agents" {
-		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
-		u.showAgents(ctx, cb.MessageID)
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "正在获取远程 VPS")
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在获取远程 VPS 状态…", nil)
+		go u.showAgents(ctx, cb.MessageID)
 		return true
 	}
 	if strings.HasPrefix(data, "agent:") {
@@ -178,7 +179,14 @@ func checkAllDoneText(summary CheckSummary) string {
 		}
 	}
 	if summary.Errors > 0 {
-		lines = append(lines, fmt.Sprintf("检查失败：%d 个，详情看日志。", summary.Errors))
+		lines = append(lines, "", fmt.Sprintf("检查失败：%d 个", summary.Errors))
+		for i, item := range summary.ErrorDetails {
+			if i >= 3 {
+				lines = append(lines, fmt.Sprintf("…还有 %d 个错误", len(summary.ErrorDetails)-i))
+				break
+			}
+			lines = append(lines, "• "+item)
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -392,11 +400,13 @@ func (u *Updater) showAgents(ctx context.Context, messageID int64) {
 	for _, a := range agents {
 		var snap agent.Snapshot
 		var err error
+		agentCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		if a.Mode == "reverse" && u.reverse != nil {
-			snap, err = u.reverse.Snapshot(ctx, a)
+			snap, err = u.reverse.Snapshot(agentCtx, a)
 		} else {
-			_, snap, err = u.agents.Snapshot(ctx, a.ID)
+			_, snap, err = u.agents.Snapshot(agentCtx, a.ID)
 		}
+		cancel()
 		if err != nil {
 			lines = append(lines, fmt.Sprintf("🔴 %s：连接失败", a.Name), "错误："+friendlyError(err), "")
 		} else {

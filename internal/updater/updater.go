@@ -23,6 +23,7 @@ type CheckSummary struct {
 	RemoteChecked        int
 	RemoteUpdates        int
 	Errors               int
+	ErrorDetails         []string
 	Skipped              []string
 	UpdateTokens         []string
 	PendingUpdateTokens  []string
@@ -242,6 +243,7 @@ func (u *Updater) CheckOnceSummary(parent context.Context, manual bool) (CheckSu
 			token, update, skipped, err := u.checkContainer(ctx, c, manual)
 			if err != nil {
 				summary.Errors++
+				summary.ErrorDetails = append(summary.ErrorDetails, fmt.Sprintf("本机 %s：%s", c.Name, friendlyError(err)))
 				u.log.Warn("container check failed", "container", c.Name, "image", c.Image, "error", err)
 				continue
 			}
@@ -267,6 +269,7 @@ func (u *Updater) CheckOnceSummary(parent context.Context, manual bool) (CheckSu
 	summary.RemoteUpdates += remote.RemoteUpdates
 	summary.Errors += remote.Errors
 	summary.Skipped = append(summary.Skipped, remote.Skipped...)
+	summary.ErrorDetails = append(summary.ErrorDetails, remote.ErrorDetails...)
 	summary.UpdateTokens = append(summary.UpdateTokens, remote.UpdateTokens...)
 	summary.Updates = append(summary.Updates, remote.Updates...)
 	if !manual {
@@ -308,6 +311,7 @@ func (u *Updater) CheckRemoteAgents(ctx context.Context, manual bool) (CheckSumm
 		}
 		if err != nil {
 			summary.Errors++
+			summary.ErrorDetails = append(summary.ErrorDetails, fmt.Sprintf("远程 %s：%s", a.Name, friendlyError(err)))
 			u.log.Warn("remote agent update check failed", "agent", a.Name, "error", err)
 			continue
 		}
