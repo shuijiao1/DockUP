@@ -17,6 +17,8 @@ import (
 var semverTagRE = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)
 var hexRE = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 var subStoreBundleVersionRE = regexp.MustCompile(`SUB_STORE(?:_BACKEND)?_VERSION:\s*(v?[0-9]+\.[0-9]+\.[0-9]+)`)
+var tgbotRSSVersionRE = regexp.MustCompile(`main\.version=(v?[0-9]+\.[0-9]+\.[0-9]+)`)
+var packageJSONVersionRE = regexp.MustCompile(`"version"\s*:\s*"(v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)"`)
 
 type ImageVersion struct {
 	Ref       string
@@ -94,7 +96,7 @@ func imageVersionLabel(data map[string]any) string {
 	cfg, _ := data["Config"].(map[string]any)
 	labels, _ := cfg["Labels"].(map[string]any)
 	for _, key := range []string{"org.opencontainers.image.version", "org.label-schema.version", "version"} {
-		if v := strings.TrimSpace(str(labels[key])); v != "" && v != "latest" && v != "main" {
+		if v := strings.TrimSpace(str(labels[key])); v != "" && v != "latest" && v != "main" && v != "nightly" {
 			return v
 		}
 	}
@@ -137,9 +139,7 @@ func (c *Client) EnrichBundledAppVersion(ctx context.Context, v *ImageVersion, r
 	if v == nil || strings.TrimSpace(v.Tag) != "" {
 		return
 	}
-	if !strings.Contains(strings.ToLower(ref), "xream/sub-store") {
-		return
-	}
+	lowRef := strings.ToLower(ref)
 	image := strings.TrimSpace(v.ID)
 	if image == "" {
 		image = strings.TrimSpace(v.Ref)
@@ -147,12 +147,26 @@ func (c *Client) EnrichBundledAppVersion(ctx context.Context, v *ImageVersion, r
 	if image == "" {
 		return
 	}
-	if tag, err := c.readSubStoreBundleVersion(ctx, image); err == nil && tag != "" {
-		v.Tag = tag
+	switch {
+	case strings.Contains(lowRef, "xream/sub-store"):
+		if tag, err := c.readBundledVersion(ctx, image, "/opt/app/sub-store.bundle.js", 8<<20, subStoreBundleVersionRE); err == nil && tag != "" {
+			v.Tag = tag
+		}
+	case strings.Contains(lowRef, "kwxos/tgbot-rss"):
+		if tag, err := c.readBundledVersion(ctx, image, "/app/TGBot_RSS", 32<<20, tgbotRSSVersionRE); err == nil && tag != "" {
+			v.Tag = tag
+		}
+	default:
+		for _, path := range []string{"/app/package.json", "/usr/src/app/package.json"} {
+			if tag, err := c.readBundledVersion(ctx, image, path, 1<<20, packageJSONVersionRE); err == nil && tag != "" {
+				v.Tag = tag
+				return
+			}
+		}
 	}
 }
 
-func (c *Client) readSubStoreBundleVersion(ctx context.Context, image string) (string, error) {
+func (c *Client) readBundledVersion(ctx context.Context, image, path string, maxBytes int64, re *regexp.Regexp) (string, error) {
 	body := map[string]any{
 		"Image": image,
 		"Cmd":   []string{"true"},
@@ -165,13 +179,13 @@ func (c *Client) readSubStoreBundleVersion(ctx context.Context, image string) (s
 		_ = c.delete(context.Background(), "/containers/"+url.PathEscape(created.ID)+"?force=true&v=false")
 	}()
 
-	resp, err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(created.ID)+"/archive?path="+url.QueryEscape("/opt/app/sub-store.bundle.js"), nil)
+	resp, err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(created.ID)+"/archive?path="+url.QueryEscape(path), nil)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	tr := tar.NewReader(io.LimitReader(resp.Body, 8<<20))
+	tr := tar.NewReader(io.LimitReader(resp.Body, maxBytes+1<<20))
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -183,15 +197,15 @@ func (c *Client) readSubStoreBundleVersion(ctx context.Context, image string) (s
 		if h.FileInfo().IsDir() {
 			continue
 		}
-		b, err := io.ReadAll(io.LimitReader(tr, 256<<10))
+		b, err := io.ReadAll(io.LimitReader(tr, maxBytes))
 		if err != nil {
 			return "", err
 		}
-		if m := subStoreBundleVersionRE.FindStringSubmatch(string(b)); len(m) > 1 {
-			return m[1], nil
+		if m := re.FindSubmatch(b); len(m) > 1 {
+			return string(m[1]), nil
 		}
 	}
-	return "", fmt.Errorf("sub-store bundled version not found")
+	return "", fmt.Errorf("bundled version not found in %s", path)
 }
 
 func (c *Client) EnrichRemoteVersionTag(ctx context.Context, v *ImageVersion, ref string) {

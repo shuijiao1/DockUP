@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.6
+
+- 优化 Docker 版本识别：忽略 `latest`、`main`、`nightly` 等非数字版本标签。
+- 支持从 Node 项目镜像内的 `package.json` 读取版本号。
+- 支持识别 `TGBot_RSS` 二进制版本。
+
 ## v0.7.5
 
 - 修复无版本 Label 的 Docker Hub 镜像版本显示，例如 `xream/sub-store` 可显示 `2.24.1`。
