@@ -434,7 +434,11 @@ func (u *Updater) showAgent(ctx context.Context, messageID int64, agentID string
 		_, snap, err = u.agents.Snapshot(ctx, agentID)
 	}
 	if err != nil {
-		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取远程 VPS 失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		rows := [][]telegram.Button{
+			{{Text: "🗑 删除服务器", Data: "adelask:" + agentID}},
+			{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}},
+		}
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取远程 VPS 失败", err), telegram.Keyboard(rows))
 		return
 	}
 	lines := []string{fmt.Sprintf("🌐 %s", snap.Name), "", fmt.Sprintf("项目：%d 个 · 运行中：%d/%d 个容器", snap.Totals.Projects, snap.Totals.Running, snap.Totals.Containers), "", "选择项目查看状态和操作。"}
@@ -583,7 +587,11 @@ func (u *Updater) showRemoteProject(ctx context.Context, messageID int64, raw st
 		_, snap, err = u.agents.Snapshot(ctx, agentID)
 	}
 	if err != nil {
-		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取远程 VPS 失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}}}))
+		rows := [][]telegram.Button{
+			{{Text: "🗑 删除服务器", Data: "adelask:" + agentID}},
+			{{Text: "返回远程列表", Data: "agents"}, {Text: "返回主界面", Data: "main"}},
+		}
+		_ = u.bot.EditMessageWithKeyboard(ctx, messageID, friendlyErrorText("❌ 获取远程 VPS 失败", err), telegram.Keyboard(rows))
 		return
 	}
 	for _, p := range snap.Projects {

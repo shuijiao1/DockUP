@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.8
+
+- 修复离线远程 VPS 详情页无法直接删除服务器的问题。
+
 ## v0.7.6
 
 - 优化 Docker 版本识别：忽略 `latest`、`main`、`nightly` 等非数字版本标签。
