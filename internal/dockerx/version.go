@@ -19,6 +19,7 @@ var hexRE = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 var subStoreBundleVersionRE = regexp.MustCompile(`SUB_STORE(?:_BACKEND)?_VERSION:\s*(v?[0-9]+\.[0-9]+\.[0-9]+)`)
 var tgbotRSSVersionRE = regexp.MustCompile(`main\.version=(v?[0-9]+\.[0-9]+\.[0-9]+)`)
 var packageJSONVersionRE = regexp.MustCompile(`"version"\s*:\s*"(v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)"`)
+var gukoVersionRE = regexp.MustCompile(`GUKO_VERSION[^\n]*['"](v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)['"]`)
 
 type ImageVersion struct {
 	Ref       string
@@ -107,6 +108,39 @@ func (c *Client) InspectImageVersionByID(ctx context.Context, imageID string) (I
 	return c.InspectImageVersionByIDWithRef(ctx, imageID, "")
 }
 
+func (c *Client) InspectLocalImageVersionByIDWithRef(ctx context.Context, imageID, imageRef string) (ImageVersion, error) {
+	imageID = strings.TrimSpace(imageID)
+	if imageID == "" {
+		return ImageVersion{}, fmt.Errorf("empty image id")
+	}
+	var data map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, "/images/"+url.PathEscape(imageID)+"/json", nil, &data); err != nil {
+		return ImageVersion{}, err
+	}
+	v := ImageVersion{Ref: strings.TrimSpace(imageRef), ID: imageID}
+	if id, _ := data["Id"].(string); id != "" {
+		v.ID = id
+	} else if id, _ := data["ID"].(string); id != "" {
+		v.ID = id
+	}
+	if tag := tagFromRef(imageRef); tag != "" && tag != "latest" && !isBareDigestTag(tag) {
+		v.Tag = tag
+	}
+	if v.Tag == "" {
+		v.Tag = imageVersionLabel(data)
+	}
+	if digests, _ := data["RepoDigests"].([]any); len(digests) > 0 {
+		for _, raw := range digests {
+			d := str(raw)
+			if strings.Contains(d, "@sha256:") {
+				v.Digest = d
+				break
+			}
+		}
+	}
+	return v, nil
+}
+
 func (c *Client) InspectImageVersionByIDWithRef(ctx context.Context, imageID, imageRef string) (ImageVersion, error) {
 	imageID = strings.TrimSpace(imageID)
 	if imageID == "" {
@@ -154,6 +188,10 @@ func (c *Client) EnrichBundledAppVersion(ctx context.Context, v *ImageVersion, r
 		}
 	case strings.Contains(lowRef, "kwxos/tgbot-rss"):
 		if tag, err := c.readBundledVersion(ctx, image, "/app/TGBot_RSS", 32<<20, tgbotRSSVersionRE); err == nil && tag != "" {
+			v.Tag = tag
+		}
+	case strings.Contains(lowRef, "ghcr.io/shuijiao1/guko"):
+		if tag, err := c.readBundledVersion(ctx, image, "/app/bot.py", 1<<20, gukoVersionRE); err == nil && tag != "" {
 			v.Tag = tag
 		}
 	default:

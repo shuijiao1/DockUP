@@ -148,11 +148,14 @@ func (c *Client) ContainerDetail(ctx context.Context, id string) (ContainerDetai
 	if health, _ := state["Health"].(map[string]any); health != nil {
 		d.Health = str(health["Status"])
 	}
-	if shouldInspectImageVersion(d.Info.Image) {
-		versionCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		if v, err := c.InspectImageVersionByIDWithRef(versionCtx, d.Info.ImageID, d.Info.Image); err == nil {
-			d.Version = v
-		}
+	versionCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	if v, err := c.InspectLocalImageVersionByIDWithRef(versionCtx, d.Info.ImageID, d.Info.Image); err == nil {
+		d.Version = v
+	}
+	cancel()
+	if d.Version.Tag == "" {
+		bundledCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		c.EnrichBundledAppVersion(bundledCtx, &d.Version, d.Info.Image)
 		cancel()
 	}
 	return d, nil
