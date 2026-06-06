@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shuijiao1/DockUP/internal/agent"
@@ -69,6 +70,12 @@ func (a *Agent) connect(ctx context.Context) error {
 		return fmt.Errorf("connect failed: %s", resp.Status)
 	}
 	enc := json.NewEncoder(pw)
+	var writeMu sync.Mutex
+	write := func(msg envelope) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return enc.Encode(msg)
+	}
 	dec := json.NewDecoder(resp.Body)
 	defer pw.Close()
 	for {
@@ -82,16 +89,21 @@ func (a *Agent) connect(ctx context.Context) error {
 				a.log.Info("reverse agent connected", "id", msg.ID)
 			}
 		case "ping":
-			_ = enc.Encode(envelope{Type: "pong", ID: msg.ID})
+			_ = write(envelope{Type: "pong", ID: msg.ID})
 		case "request":
-			body, errText := a.handle(ctx, msg.Path, msg.Body)
-			resp := envelope{Type: "response", ID: msg.ID, Body: body}
-			if errText != "" {
-				resp.Error = errText
-			}
-			if err := enc.Encode(resp); err != nil {
-				return err
-			}
+			msg := msg
+			go func() {
+				reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+				defer cancel()
+				body, errText := a.handle(reqCtx, msg.Path, msg.Body)
+				resp := envelope{Type: "response", ID: msg.ID, Body: body}
+				if errText != "" {
+					resp.Error = errText
+				}
+				if err := write(resp); err != nil && a.log != nil {
+					a.log.Warn("reverse response failed", "path", msg.Path, "error", err)
+				}
+			}()
 		}
 	}
 }

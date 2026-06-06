@@ -38,8 +38,10 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		return true
 	}
 	if strings.HasPrefix(data, "agent:") {
-		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
-		u.showAgent(ctx, cb.MessageID, strings.TrimPrefix(data, "agent:"))
+		agentID := strings.TrimPrefix(data, "agent:")
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "正在获取远程 VPS")
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在获取远程 VPS 状态…", nil)
+		go u.showAgent(ctx, cb.MessageID, agentID)
 		return true
 	}
 	if strings.HasPrefix(data, "adelask:") {
@@ -55,8 +57,10 @@ func (u *Updater) handleManageCallback(ctx context.Context, cb telegram.Callback
 		return true
 	}
 	if strings.HasPrefix(data, "rproject:") {
-		_ = u.bot.AnswerCallback(ctx, cb.ID, "")
-		u.showRemoteProject(ctx, cb.MessageID, strings.TrimPrefix(data, "rproject:"))
+		raw := strings.TrimPrefix(data, "rproject:")
+		_ = u.bot.AnswerCallback(ctx, cb.ID, "正在获取项目")
+		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在获取远程项目状态…", nil)
+		go u.showRemoteProject(ctx, cb.MessageID, raw)
 		return true
 	}
 	if strings.HasPrefix(data, "acheck:") {
@@ -428,10 +432,12 @@ func (u *Updater) showAgent(ctx context.Context, messageID int64, agentID string
 	}
 	var snap agent.Snapshot
 	var err error
+	agentCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
 	if agentCfg.Mode == "reverse" && u.reverse != nil {
-		snap, err = u.reverse.Snapshot(ctx, agentCfg)
+		snap, err = u.reverse.Snapshot(agentCtx, agentCfg)
 	} else {
-		_, snap, err = u.agents.Snapshot(ctx, agentID)
+		_, snap, err = u.agents.Snapshot(agentCtx, agentID)
 	}
 	if err != nil {
 		rows := [][]telegram.Button{
@@ -581,10 +587,12 @@ func (u *Updater) showRemoteProject(ctx context.Context, messageID int64, raw st
 	}
 	var snap agent.Snapshot
 	var err error
+	agentCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
 	if agentCfg.Mode == "reverse" && u.reverse != nil {
-		snap, err = u.reverse.Snapshot(ctx, agentCfg)
+		snap, err = u.reverse.Snapshot(agentCtx, agentCfg)
 	} else {
-		_, snap, err = u.agents.Snapshot(ctx, agentID)
+		_, snap, err = u.agents.Snapshot(agentCtx, agentID)
 	}
 	if err != nil {
 		rows := [][]telegram.Button{
@@ -669,16 +677,19 @@ func (u *Updater) handleRemoteProjectAction(ctx context.Context, cb telegram.Cal
 		return
 	}
 	_ = u.bot.AnswerCallback(ctx, cb.ID, "执行中")
+	_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, "⏳ 正在执行远程操作…", nil)
 	agentCfg, ok := u.findAgent(agentID)
 	if !ok {
 		_ = u.bot.AnswerCallback(ctx, cb.ID, "服务器不存在")
 		return
 	}
 	var err error
+	actionCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	if agentCfg.Mode == "reverse" && u.reverse != nil {
-		err = u.reverse.ProjectAction(ctx, agentCfg, key, action)
+		err = u.reverse.ProjectAction(actionCtx, agentCfg, key, action)
 	} else {
-		err = u.agents.ProjectAction(ctx, agentID, key, action)
+		err = u.agents.ProjectAction(actionCtx, agentID, key, action)
 	}
 	if err != nil {
 		_ = u.bot.EditMessageWithKeyboard(ctx, cb.MessageID, friendlyErrorText("❌ 远程操作失败", err), telegram.Keyboard([][]telegram.Button{{{Text: "返回项目", Data: "rproject:" + agentID + ":" + key}, {Text: "返回远程列表", Data: "agents"}}}))

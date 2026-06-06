@@ -148,10 +148,24 @@ func (c *Client) ContainerDetail(ctx context.Context, id string) (ContainerDetai
 	if health, _ := state["Health"].(map[string]any); health != nil {
 		d.Health = str(health["Status"])
 	}
-	if v, err := c.InspectImageVersionByIDWithRef(ctx, d.Info.ImageID, d.Info.Image); err == nil {
-		d.Version = v
+	if shouldInspectImageVersion(d.Info.Image) {
+		versionCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if v, err := c.InspectImageVersionByIDWithRef(versionCtx, d.Info.ImageID, d.Info.Image); err == nil {
+			d.Version = v
+		}
+		cancel()
 	}
 	return d, nil
+}
+
+func shouldInspectImageVersion(image string) bool {
+	image = strings.TrimSpace(strings.ToLower(image))
+	if image == "" || strings.HasPrefix(image, "sha256:") || strings.Contains(image, "@sha256:") {
+		return false
+	}
+	return strings.HasPrefix(image, "ghcr.io/shuijiao1/") ||
+		strings.HasPrefix(image, "xream/sub-store") ||
+		strings.HasPrefix(image, "kwxos/tgbot-rss")
 }
 
 func (c *Client) fillStats(ctx context.Context, d *ContainerDetail) error {
