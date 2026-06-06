@@ -17,15 +17,20 @@ import (
 )
 
 type Agent struct {
-	docker *dockerx.Client
-	url    string
-	token  string
-	name   string
-	log    *slog.Logger
+	docker  *dockerx.Client
+	url     string
+	token   string
+	name    string
+	log     *slog.Logger
+	timeout time.Duration
 }
 
-func NewAgent(docker *dockerx.Client, url, token, name string, log *slog.Logger) *Agent {
-	return &Agent{docker: docker, url: strings.TrimRight(strings.TrimSpace(url), "/"), token: strings.TrimSpace(token), name: strings.TrimSpace(name), log: log}
+func NewAgent(docker *dockerx.Client, url, token, name string, log *slog.Logger, timeout ...time.Duration) *Agent {
+	t := 20 * time.Second
+	if len(timeout) > 0 && timeout[0] > 0 {
+		t = timeout[0]
+	}
+	return &Agent{docker: docker, url: strings.TrimRight(strings.TrimSpace(url), "/"), token: strings.TrimSpace(token), name: strings.TrimSpace(name), log: log, timeout: t}
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -93,7 +98,7 @@ func (a *Agent) connect(ctx context.Context) error {
 		case "request":
 			msg := msg
 			go func() {
-				reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+				reqCtx, cancel := context.WithTimeout(ctx, a.timeout)
 				defer cancel()
 				body, errText := a.handle(reqCtx, msg.Path, msg.Body)
 				resp := envelope{Type: "response", ID: msg.ID, Body: body}

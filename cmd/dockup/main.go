@@ -51,7 +51,7 @@ func main() {
 	if config.ModeFromEnv() == "agent" {
 		if cfg.PublicURL != "" {
 			log.Info("DockUP booting in reverse agent mode", "version", version, "center", cfg.PublicURL)
-			if err := reverse.NewAgent(docker, cfg.PublicURL, cfg.AgentToken, cfg.LocalName, log).Run(ctx); err != nil && err != context.Canceled {
+			if err := reverse.NewAgent(docker, cfg.PublicURL, cfg.AgentToken, cfg.LocalName, log, cfg.Timeout).Run(ctx); err != nil && err != context.Canceled {
 				log.Error("DockUP reverse agent stopped with error", "error", err)
 				os.Exit(1)
 			}
