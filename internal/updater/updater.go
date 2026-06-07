@@ -451,6 +451,9 @@ func (u *Updater) handleCallback(parent context.Context, cb telegram.Callback) {
 }
 
 func (u *Updater) applyUpdate(parent context.Context, p pendingUpdate) {
+	if parent == nil {
+		parent = context.Background()
+	}
 	if p.Container.Name == "dockup" {
 		ctx, cancel := context.WithTimeout(parent, u.cfg.Timeout)
 		defer cancel()
@@ -464,10 +467,20 @@ func (u *Updater) applyUpdate(parent context.Context, p pendingUpdate) {
 		return
 	}
 	if err := u.applyUpdateOnce(parent, p); err != nil {
-		_ = u.bot.EditMessage(parent, p.MessageID, formatFailed(p, err))
+		u.log.Error("container update failed", "container", p.Container.Name, "image", p.Container.Image, "error", err)
+		u.editUpdateMessage(formatFailed(p, err), p.MessageID)
 		return
 	}
-	_ = u.bot.EditMessage(parent, p.MessageID, formatSuccess(p))
+	u.log.Info("container update finished", "container", p.Container.Name, "image", p.Container.Image, "old", p.OldVersion.Display(), "new", p.NewVersion.Display())
+	u.editUpdateMessage(formatSuccess(p), p.MessageID)
+}
+
+func (u *Updater) editUpdateMessage(text string, messageID int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := u.bot.EditMessage(ctx, messageID, text); err != nil {
+		u.log.Error("failed to edit update message", "message_id", messageID, "error", err)
+	}
 }
 
 func (u *Updater) applyUpdateOnce(parent context.Context, p pendingUpdate) error {
