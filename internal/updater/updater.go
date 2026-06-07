@@ -446,7 +446,7 @@ func (u *Updater) handleCallback(parent context.Context, cb telegram.Callback) {
 	case "update":
 		_ = u.bot.AnswerCallback(parent, cb.ID, "开始更新")
 		_ = u.bot.EditMessage(parent, p.MessageID, formatUpdating(p))
-		go u.applyUpdate(parent, p)
+		go u.applyUpdate(context.Background(), p)
 	}
 }
 

@@ -1031,7 +1031,7 @@ func (u *Updater) handleManualUpdate(ctx context.Context, cb telegram.Callback, 
 	}
 	_ = u.bot.AnswerCallback(ctx, cb.ID, "开始更新")
 	_ = u.bot.EditMessage(ctx, cb.MessageID, formatUpdating(p))
-	go u.applyUpdate(ctx, p)
+	go u.applyUpdate(context.Background(), p)
 }
 
 func (u *Updater) handleProjectAction(ctx context.Context, cb telegram.Callback) {
